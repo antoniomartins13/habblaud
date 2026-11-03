@@ -26,7 +26,7 @@ export class PipelineStatus {
   /** Foto nova do auxiliar. Devolve true se algo mudou. */
   set(raw: unknown): boolean {
     const list = raw && typeof raw === 'object' && Array.isArray((raw as { pending?: unknown }).pending) ? (raw as { pending: unknown[] }).pending : [];
-    const next = list.map(parsePending).filter((p): p is PipelinePending => !!p);
+    const next = groupPendingByEntrega(list.map(parsePending).filter((p): p is PipelinePending => !!p));
     const changed = JSON.stringify(next) !== JSON.stringify(this.items) || !this.fresh();
     this.items = next;
     this.at = this.now();
@@ -64,13 +64,43 @@ export function parsePending(raw: unknown): PipelinePending | undefined {
   return p;
 }
 
+/** Consolida sub-tarefas da mesma funcionalidade (`entrega`) e mesmo tipo (`kind`) em um único item. */
+export function groupPendingByEntrega(items: readonly PipelinePending[]): PipelinePending[] {
+  const out: PipelinePending[] = [];
+  const byKey = new Map<string, { item: PipelinePending; tasks: string[]; reasons: string[] }>();
+  for (const p of items) {
+    if (!p.entrega) {
+      out.push({ ...p });
+      continue;
+    }
+    const key = `${p.entrega}|${p.kind}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      const clone: PipelinePending = { ...p };
+      const entry = { item: clone, tasks: [p.task], reasons: p.reason ? [`${p.task}: ${p.reason}`] : [] };
+      byKey.set(key, entry);
+      out.push(clone);
+    } else {
+      existing.tasks.push(p.task);
+      if (p.reason) existing.reasons.push(`${p.task}: ${p.reason}`);
+      if (!existing.item.hash && p.hash) existing.item.hash = p.hash;
+    }
+  }
+  for (const { item, tasks, reasons } of byKey.values()) {
+    if (tasks.length > 1 && reasons.length) {
+      item.reason = reasons.join(' · ').slice(0, TEXT_MAX);
+    }
+  }
+  return out;
+}
+
 /** A linha que o usuário manda na sessão interativa dele para resolver (o hook do pipeline registra). */
 export function pendingCommand(p: PipelinePending): string | undefined {
   const target = p.entrega ?? p.task;
   if (p.kind === 'cp1' && p.hash) return `APROVAR CP1 ${target} ${p.hash.slice(0, 10)}`;
   if (p.kind === 'prototype' && p.hash) return `APROVAR PROTOTIPO ${target} ${p.hash.slice(0, 10)}`;
   if (p.kind === 'blocked') {
-    if (p.reason?.includes('Dev sem progresso')) return `RECUPERAR ${p.task} validate`;
+    if (p.reason?.includes('Dev sem progresso')) return `RECUPERAR ${target} validate`;
     return `RECUPERAR ${target}`;
   }
   return undefined;
@@ -83,19 +113,53 @@ const DOC_FILES: Record<'spec' | 'plan', string> = {
 };
 
 /**
- * Lê a spec (`task-spec.md`) ou o plano (`plan.md`) de uma tarefa em `_pipeline/tarefas/<task>/`, somente leitura.
+ * Lê a spec (`task-spec.md`) ou o plano (`plan.md`) de uma funcionalidade (`entrega`) ou tarefa em `_pipeline/tarefas/`,
+ * somente leitura. Quando `task` é uma `entrega` sem `plan.md` próprio, consolida os planos das sub-tarefas da entrega.
  */
 export function readPipelineDoc(
   readDir: string,
   task: string,
   doc: string,
   read: (f: string) => string = (f) => readFileSync(f, 'utf8'),
+  listDir: (d: string) => string[] = (d) => readdirSync(d),
 ): { task: string; doc: 'spec' | 'plan'; name: string; content: string } | undefined {
   if (!TASK_ID.test(task) || (doc !== 'spec' && doc !== 'plan')) return undefined;
   const name = DOC_FILES[doc];
   try {
     const content = read(join(readDir, 'tarefas', task, name)).slice(0, DOC_MAX_BYTES);
     return { task, doc, name, content };
+  } catch {
+    // Se for o ID de uma entrega (ex.: transparencia-ajustes-4), procura nas sub-tarefas da entrega.
+  }
+  try {
+    const tarefasDir = join(readDir, 'tarefas');
+    const members = listDir(tarefasDir)
+      .filter((t) => TASK_ID.test(t))
+      .sort()
+      .filter((t) => readJson(join(tarefasDir, t, 'task.json'), read)?.entrega === task);
+    if (!members.length) return undefined;
+    if (doc === 'spec') {
+      for (const m of members) {
+        try {
+          const content = read(join(tarefasDir, m, name)).slice(0, DOC_MAX_BYTES);
+          return { task, doc, name, content };
+        } catch {
+          // tenta a próxima
+        }
+      }
+      return undefined;
+    }
+    const parts: string[] = [];
+    for (const m of members) {
+      try {
+        const c = read(join(tarefasDir, m, name)).trim();
+        if (c) parts.push(`# ${m}\n\n${c}`);
+      } catch {
+        // sub-tarefa ainda sem plan.md
+      }
+    }
+    if (!parts.length) return undefined;
+    return { task, doc, name: `${task}/${name}`, content: parts.join('\n\n---\n\n').slice(0, DOC_MAX_BYTES) };
   } catch {
     return undefined;
   }

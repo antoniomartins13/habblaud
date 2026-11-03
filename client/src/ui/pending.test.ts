@@ -145,21 +145,23 @@ describe('pendingItems (botão Aprovar/Recuperar + Spec/Plano)', () => {
     expect(feedback.hidden).toBe(false);
   });
 
-  it('pede confirmação no primeiro clique e envia a linha exata no segundo clique, além de abrir Spec e Plano', async () => {
+  it('agrupa sub-tarefas da mesma funcionalidade (entrega), pede confirmação no primeiro clique e envia a linha no segundo', async () => {
     const elements = stubDom();
     const consoleAgent = agent({ id: 'ger', name: 'Andrius' });
     const send = vi.fn().mockResolvedValue({ message: { id: 'm1' } });
-    const fetchDoc = vi.fn().mockResolvedValue({ name: 'plan.md', content: '# Plano detalhado' });
-    pendingItems([item], { consoleAgent, sendCommand: send, fetchDoc });
+    const fetchDoc = vi.fn().mockResolvedValue({ name: 'task-spec.md', content: '# Spec da funcionalidade' });
+    const item2: PipelinePending = { ...item, task: 'aj4-front' };
+    const cards = pendingItems([item, item2], { consoleAgent, sendCommand: send, fetchDoc });
+    expect(cards.length).toBe(1);
 
     const docBtns = elements.filter((el) => el.className.includes('ui-pending__doc-btn'));
-    docBtns[1]!.click();
+    docBtns[0]!.click();
     await Promise.resolve();
-    expect(fetchDoc).toHaveBeenCalledWith('aj4-back', 'plan');
+    expect(fetchDoc).toHaveBeenCalledWith('transparencia-ajustes-4', 'spec');
     const modal = elements.find((el) => el.className.includes('ui-pipe-doc ')) ?? elements.find((el) => el.className.endsWith('ui-pipe-doc'))!;
     const docMd = elements.find((el) => el.className.includes('ui-pipe-doc__md'))!;
     expect(modal.hidden).toBe(false);
-    expect(docMd.textContent).toBe('# Plano detalhado');
+    expect(docMd.textContent).toBe('# Spec da funcionalidade');
 
     const actButtons = elements.filter((el) => el.className.includes('ui-pending__act'));
     expect(actButtons.length).toBe(2); // um no item e outro no rodapé da janela flutuante

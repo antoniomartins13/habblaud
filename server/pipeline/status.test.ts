@@ -73,26 +73,36 @@ describe('PipelineStatus e a linha que resolve', () => {
     expect(pendingCommand({ task: 'p', kind: 'cp1' })).toBeUndefined();
     expect(pendingCommand({ task: 'b', kind: 'blocked', entrega: 'ent-b' })).toBe('RECUPERAR ent-b');
     expect(pendingCommand({ task: 'aj4-back', kind: 'blocked', entrega: 'ent-a', reason: 'dev: RuntimeError: Dev sem progresso verificavel' })).toBe(
-      'RECUPERAR aj4-back validate',
+      'RECUPERAR ent-a validate',
     );
     expect(pendingCommand({ task: 'c', kind: 'draft' })).toBeUndefined();
     expect(parsePending({ task: 'x', kind: 'cp1', reason: 'a'.repeat(500) })?.reason).toHaveLength(240);
   });
 
-  it('lê a spec e o plano da tarefa em tarefas/<task>/, recusando nomes inválidos', () => {
+  it('lê a spec e o plano da funcionalidade (entrega) ou tarefa em tarefas/, recusando nomes inválidos', () => {
     const files: Record<string, string> = {
+      [`${DIR}/tarefas/aj4-back/task.json`]: JSON.stringify({ entrega: 'ent-aj4' }),
       [`${DIR}/tarefas/aj4-back/task-spec.md`]: '# Spec aj4',
-      [`${DIR}/tarefas/aj4-back/plan.md`]: '# Plano aj4',
+      [`${DIR}/tarefas/aj4-back/plan.md`]: '# Plano back',
+      [`${DIR}/tarefas/aj4-front/task.json`]: JSON.stringify({ entrega: 'ent-aj4' }),
+      [`${DIR}/tarefas/aj4-front/plan.md`]: '# Plano front',
     };
     const read = (f: string) => {
       if (!(f in files)) throw new Error('ENOENT');
       return files[f]!;
     };
-    expect(readPipelineDoc(DIR, 'aj4-back', 'spec', read)).toEqual({ task: 'aj4-back', doc: 'spec', name: 'task-spec.md', content: '# Spec aj4' });
-    expect(readPipelineDoc(DIR, 'aj4-back', 'plan', read)).toEqual({ task: 'aj4-back', doc: 'plan', name: 'plan.md', content: '# Plano aj4' });
-    expect(readPipelineDoc(DIR, '../etc', 'spec', read)).toBeUndefined();
-    expect(readPipelineDoc(DIR, 'aj4-back', 'outro', read)).toBeUndefined();
-    expect(readPipelineDoc(DIR, 'inexistente', 'spec', read)).toBeUndefined();
+    const listDir = () => ['aj4-back', 'aj4-front'];
+    expect(readPipelineDoc(DIR, 'aj4-back', 'spec', read, listDir)).toEqual({ task: 'aj4-back', doc: 'spec', name: 'task-spec.md', content: '# Spec aj4' });
+    expect(readPipelineDoc(DIR, 'ent-aj4', 'spec', read, listDir)).toEqual({ task: 'ent-aj4', doc: 'spec', name: 'task-spec.md', content: '# Spec aj4' });
+    expect(readPipelineDoc(DIR, 'ent-aj4', 'plan', read, listDir)).toEqual({
+      task: 'ent-aj4',
+      doc: 'plan',
+      name: 'ent-aj4/plan.md',
+      content: '# aj4-back\n\n# Plano back\n\n---\n\n# aj4-front\n\n# Plano front',
+    });
+    expect(readPipelineDoc(DIR, '../etc', 'spec', read, listDir)).toBeUndefined();
+    expect(readPipelineDoc(DIR, 'aj4-back', 'outro', read, listDir)).toBeUndefined();
+    expect(readPipelineDoc(DIR, 'inexistente', 'spec', read, listDir)).toBeUndefined();
   });
 });
 

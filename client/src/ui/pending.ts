@@ -153,12 +153,48 @@ function buildActionButtonsForPending(p: PipelinePending, feedbackEl: HTMLElemen
       : p.kind === 'prototype'
         ? tr('Aprovar o protótipo de {0}?', [target])
         : p.command.endsWith(' validate')
-          ? tr('Recuperar {0} p/ validação?', [p.task])
+          ? tr('Recuperar {0} p/ validação?', [target])
           : tr('Recuperar {0}?', [target]);
   out.push(createActionButton(label, confirmLabel, p.command, feedbackEl, opts));
-  if (p.kind === 'blocked' && p.reason?.startsWith('dev:') && !p.command.endsWith(' validate')) {
-    const valCmd = `RECUPERAR ${p.task} validate`;
-    out.push(createActionButton(tr('Validar'), tr('Recuperar {0} p/ validação?', [p.task]), valCmd, feedbackEl, opts));
+  if (p.kind === 'blocked' && (p.reason?.startsWith('dev:') || p.reason?.includes(': dev:')) && !p.command.endsWith(' validate')) {
+    const valCmd = `RECUPERAR ${target} validate`;
+    out.push(createActionButton(tr('Validar'), tr('Recuperar {0} p/ validação?', [target]), valCmd, feedbackEl, opts));
+  }
+  return out;
+}
+
+/** Consolida sub-tarefas da mesma funcionalidade (`entrega`) e mesmo tipo (`kind`) em um único card. */
+export function groupPendingByEntrega(items: readonly PipelinePending[]): PipelinePending[] {
+  const out: PipelinePending[] = [];
+  const byKey = new Map<string, { item: PipelinePending; tasks: string[]; reasons: string[] }>();
+  for (const p of items) {
+    if (!p.entrega) {
+      out.push({ ...p });
+      continue;
+    }
+    const key = `${p.entrega}|${p.kind}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      const clone: PipelinePending = { ...p };
+      if (clone.kind === 'blocked' && clone.command) {
+        clone.command = clone.reason?.includes('Dev sem progresso') ? `RECUPERAR ${p.entrega} validate` : `RECUPERAR ${p.entrega}`;
+      }
+      const entry = { item: clone, tasks: [p.task], reasons: p.reason ? [`${p.task}: ${p.reason}`] : [] };
+      byKey.set(key, entry);
+      out.push(clone);
+    } else {
+      existing.tasks.push(p.task);
+      if (p.reason) existing.reasons.push(`${p.task}: ${p.reason}`);
+      if (!existing.item.hash && p.hash) existing.item.hash = p.hash;
+      if (existing.item.kind === 'blocked' && p.reason?.includes('Dev sem progresso')) {
+        existing.item.command = `RECUPERAR ${p.entrega} validate`;
+      }
+    }
+  }
+  for (const { item, tasks, reasons } of byKey.values()) {
+    if (tasks.length > 1 && reasons.length) {
+      item.reason = reasons.join(' · ').slice(0, 240);
+    }
   }
   return out;
 }
@@ -268,11 +304,12 @@ class PipelineDocModal {
 
   async open(p: PipelinePending, doc: 'spec' | 'plan', opts?: PendingItemsOptions): Promise<void> {
     this.mount();
-    if (!this.el.hidden && this.currentTask === p.task && this.currentDoc === doc) {
+    const target = p.entrega ?? p.task;
+    if (!this.el.hidden && this.currentTask === target && this.currentDoc === doc) {
       this.close();
       return;
     }
-    this.currentTask = p.task;
+    this.currentTask = target;
     this.currentDoc = doc;
     this.movable?.restore();
 
@@ -289,8 +326,8 @@ class PipelineDocModal {
     setAttr(this.planTab, 'aria-selected', doc === 'plan' ? 'true' : 'false');
 
     const fileName = doc === 'spec' ? 'task-spec.md' : 'plan.md';
-    setText(this.titleEl, `${p.task} · ${fileName}`);
-    setText(this.subEl, `${WHAT_LABEL[p.kind]()} · ${p.entrega ?? p.task}`);
+    setText(this.titleEl, `${target} · ${fileName}`);
+    setText(this.subEl, `${WHAT_LABEL[p.kind]()} · ${target}`);
     this.rawContent = '';
     setText(this.mdEl, tr('Carregando…'));
 
@@ -326,14 +363,17 @@ class PipelineDocModal {
 
     const seq = ++this.reqSeq;
     const fetchDoc = opts?.fetchDoc ?? defaultFetchPipelineDoc;
-    const res = await fetchDoc(p.task, doc);
+    let res = await fetchDoc(target, doc);
+    if ('error' in res && p.entrega && p.entrega !== p.task) {
+      res = await fetchDoc(p.task, doc);
+    }
     if (seq !== this.reqSeq) return;
     if ('error' in res) {
       setText(this.mdEl, res.error);
       return;
     }
     this.rawContent = res.content;
-    setText(this.titleEl, `${p.task} · ${res.name}`);
+    setText(this.titleEl, `${target} · ${res.name}`);
     if (typeof document !== 'undefined' && typeof document.createDocumentFragment === 'function' && typeof this.mdEl.replaceChildren === 'function') {
       this.mdEl.replaceChildren(renderMarkdown(res.content));
     } else {
@@ -354,18 +394,19 @@ export function resetPipelineDocModalForTest(): void {
 }
 
 export function pendingItems(items: readonly PipelinePending[], opts?: PendingItemsOptions): HTMLElement[] {
-  return items.map((p) => {
+  return groupPendingByEntrega(items).map((p) => {
+    const target = p.entrega ?? p.task;
     const specBtn = h('button', {
       class: 'ui-btn ui-btn--xs ui-pending__doc-btn',
       type: 'button',
       text: tr('Spec'),
-      title: tr('Abrir task-spec.md de {0} em janela de leitura', [p.task]),
+      title: tr('Abrir task-spec.md de {0} em janela de leitura', [target]),
     });
     const planBtn = h('button', {
       class: 'ui-btn ui-btn--xs ui-pending__doc-btn',
       type: 'button',
       text: tr('Plano'),
-      title: tr('Abrir plan.md de {0} em janela de leitura', [p.task]),
+      title: tr('Abrir plan.md de {0} em janela de leitura', [target]),
     });
     specBtn.addEventListener('click', () => void getDocModal().open(p, 'spec', opts));
     planBtn.addEventListener('click', () => void getDocModal().open(p, 'plan', opts));
@@ -383,7 +424,7 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
       h(
         'div',
         { class: 'ui-pending__head' },
-        h('span', { class: 'ui-pending__what', text: `${WHAT_LABEL[p.kind]()} · ${p.task}` }),
+        h('span', { class: 'ui-pending__what', text: `${WHAT_LABEL[p.kind]()} · ${target}` }),
         h('span', { class: 'ui-pending__docs' }, specBtn, planBtn),
       ),
       ...(p.reason ? [h('span', { class: 'ui-pending__reason', text: p.reason })] : []),
