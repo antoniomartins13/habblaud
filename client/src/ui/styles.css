@@ -11265,3 +11265,9 @@ html.is-replay #world {
   color: #1a1a1a;
   background: #f0b429;
 }
+.ui-side__pending { margin: 8px 0 0; padding: 6px 10px; }
+.ui-side__pending > summary { cursor: pointer; margin: 0; list-style: none; }
+.ui-side__pending > summary::-webkit-details-marker { display: none; }
+.ui-side__pending > summary::after { content: ' ▸'; }
+.ui-side__pending[open] > summary::after { content: ' ▾'; }
+.ui-side__pending[open] .ui-pending__list { max-height: 32vh; overflow-y: auto; margin-top: 6px; }

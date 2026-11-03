@@ -47,7 +47,8 @@ export class Sidebar implements UiComponent {
   private scroller: HTMLElement;
   private rooms: KeyedList<RoomGroup>;
   private roomRefs = new WeakMap<HTMLElement, RoomRefs>();
-  private runnerBox: HTMLDivElement;
+  private runnerBox: HTMLDetailsElement;
+  private runnerTitle: HTMLElement;
   private runnerList: HTMLUListElement;
   private runnerKey = '';
   private nodeRefs = new WeakMap<HTMLElement, NodeRefs>();
@@ -134,8 +135,10 @@ export class Sidebar implements UiComponent {
     this.scroller.append(this.empty);
 
     // Pendências do runner sem sala aberta (ninguém trabalhando na funcionalidade): ficam no topo da lista.
+    // Recolhido por padrão (a lista de agentes vem primeiro); aberto, rola por dentro.
     this.runnerList = h('ul', { class: 'ui-pending__list' });
-    this.runnerBox = h('div', { class: 'ui-pending ui-side__pending', hidden: true, attrs: { role: 'status' } }, h('strong', { class: 'ui-pending__title', text: tr('✋ O runner espera você') }), this.runnerList);
+    this.runnerTitle = h('summary', { class: 'ui-pending__title' });
+    this.runnerBox = h('details', { class: 'ui-pending ui-side__pending', hidden: true }, this.runnerTitle, this.runnerList);
     const close = iconButton(ICONS.close, tr('Fechar painel lateral'), () => ctx.togglePanel('sidebar', false), 'ui-side__close');
     this.el = h(
       'aside',
@@ -157,6 +160,7 @@ export class Sidebar implements UiComponent {
     this.filterList.sync(accounts.length > 1 ? accounts : []);
     const orphan = snap?.meta.pipeline ?? [];
     setHidden(this.runnerBox, !orphan.length);
+    setText(this.runnerTitle, tr('✋ O runner espera você ({0})', [orphan.length]));
     const runnerKey = JSON.stringify(orphan);
     if (runnerKey !== this.runnerKey) {
       this.runnerKey = runnerKey;

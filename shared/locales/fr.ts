@@ -3370,4 +3370,5 @@ export const FR: Readonly<Record<string, string>> = {
   "Copiar a linha (mande só ela na sua sessão interativa)": "Copier la ligne (envoyez-la seule dans votre session interactive)",
   "O runner espera você: {0}": "Le runner vous attend : {0}",
   "Recuperar o bloqueio": "Lever le blocage",
+  "✋ O runner espera você ({0})": "✋ Le runner vous attend ({0})",
 };

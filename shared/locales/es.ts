@@ -3354,4 +3354,5 @@ export const ES: Readonly<Record<string, string>> = {
   "Copiar a linha (mande só ela na sua sessão interativa)": "Copiar la línea (envía solo ella en tu sesión interactiva)",
   "O runner espera você: {0}": "El runner te espera: {0}",
   "Recuperar o bloqueio": "Recuperar el bloqueo",
+  "✋ O runner espera você ({0})": "✋ El runner te espera ({0})",
 };
