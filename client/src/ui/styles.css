@@ -11261,9 +11261,12 @@ html.is-replay #world {
 .ui-pending__reason { color: var(--ui-muted, #8b98b3); }
 .ui-pending__cmd { flex-wrap: wrap; gap: 4px; }
 .ui-pending__cmd code { font-size: 11px; word-break: break-all; }
-.ui-pending__act { font-weight: 600; }
-.ui-pending__act.is-armed { background: #f0b429; color: #1a1a1a; border-color: #f0b429; }
-.ui-pending__act.is-done { opacity: 0.85; }
+.ui-pending__act,
+.ui-pending__corr-send { font-weight: 600; }
+.ui-pending__act.is-armed,
+.ui-pending__corr-send.is-armed { background: #f0b429; color: #1a1a1a; border-color: #f0b429; }
+.ui-pending__act.is-done,
+.ui-pending__corr-send.is-done { opacity: 0.85; }
 .ui-pending__feedback { font-size: 11px; color: var(--ui-muted, #8b98b3); }
 .ui-pending__feedback.is-error { color: #ff6b6b; }
 
@@ -11291,7 +11294,33 @@ html.is-replay #world {
 }
 .ui-pipe-doc__cmd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ui-pipe-doc__cmd code { flex: 1 1 220px; font-size: 12px; word-break: break-all; }
-.ui-pipe-doc__foot .ui-pending__act { min-height: 30px; padding: 4px 12px; font-size: 12.5px; }
+.ui-pipe-doc__foot .ui-pending__act,
+.ui-pipe-doc__foot .ui-pending__corr-btn { min-height: 30px; padding: 4px 12px; font-size: 12.5px; }
+.ui-pipe-doc__corr {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  border-radius: 6px;
+  background: rgba(10, 14, 24, 0.72);
+}
+.ui-pipe-doc__corr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ui-pipe-doc__corr-hint { font-size: 12px; color: var(--ui-muted, #8b98b3); flex: 1 1 260px; }
+.ui-pipe-doc__textarea {
+  width: 100%;
+  min-height: 110px;
+  max-height: 260px;
+  resize: vertical;
+  font: 13px/1.5 var(--font-mono, monospace);
+}
+.ui-pipe-doc__corr-actions { display: flex; justify-content: flex-end; gap: 8px; }
 @media (max-width: 900px) {
   .ui-pipe-doc {
     z-index: 46;
@@ -11315,12 +11344,14 @@ html.is-replay #world {
   }
   .ui-pipe-doc__scroll { padding: 14px 14px 20px; font-size: 14px; }
   .ui-pipe-doc__foot { padding: 10px 12px; }
-  .ui-pipe-doc__foot .ui-pending__act {
+  .ui-pipe-doc__foot .ui-pending__act,
+  .ui-pipe-doc__foot .ui-pending__corr-btn {
     flex: 1 1 auto;
     min-height: 36px;
     font-size: 13px;
     justify-content: center;
   }
+  .ui-pipe-doc__textarea { min-height: 130px; font-size: 14px; }
 }
 .ui-room__pending {
   padding: 0 5px;

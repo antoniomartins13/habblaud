@@ -8,13 +8,15 @@ import { ICONS } from './icons';
 import { renderMarkdown } from './markdown';
 import { maximizeButton, Movable } from './movable';
 
+export type PipelineDocKind = 'spec' | 'plan' | 'review' | 'docs';
+
 export interface PendingItemsOptions {
   /** Sessão interativa do usuário (Claude Code) que recebe o comando; ausente = console fechado. */
   consoleAgent?: AgentInfo;
   /** Envia a linha exata, sozinha, para a sessão interativa (POST /api/messages). */
   sendCommand?: (agentId: string, command: string) => Promise<{ message: unknown } | { error: string }>;
-  /** Busca a spec ou o plano da tarefa (GET /api/pipeline/doc). */
-  fetchDoc?: (task: string, doc: 'spec' | 'plan') => Promise<{ name: string; content: string } | { error: string }>;
+  /** Busca a spec, plano, revisão ou documentação da funcionalidade/tarefa (GET /api/pipeline/doc). */
+  fetchDoc?: (task: string, doc: PipelineDocKind) => Promise<{ name: string; content: string } | { error: string }>;
 }
 
 const WHAT_LABEL: Record<PipelinePending['kind'], () => string> = {
@@ -48,7 +50,7 @@ export function findInteractiveConsole(agents: readonly AgentInfo[], roomId?: st
   return [...eligible].sort((a, b) => b.lastEventAt - a.lastEventAt)[0];
 }
 
-export async function defaultFetchPipelineDoc(task: string, doc: 'spec' | 'plan'): Promise<{ name: string; content: string } | { error: string }> {
+export async function defaultFetchPipelineDoc(task: string, doc: PipelineDocKind): Promise<{ name: string; content: string } | { error: string }> {
   try {
     const res = await fetch(`/api/pipeline/doc?task=${encodeURIComponent(task)}&doc=${encodeURIComponent(doc)}`);
     const body = (await res.json().catch(() => undefined)) as { name?: unknown; content?: unknown; error?: unknown } | undefined;
@@ -64,14 +66,16 @@ export async function defaultFetchPipelineDoc(task: string, doc: 'spec' | 'plan'
 function createActionButton(
   label: string,
   confirmLabel: string,
-  command: string,
+  commandOrGetter: string | (() => string),
   feedbackEl: HTMLElement,
   opts?: PendingItemsOptions,
+  extraClass = 'ui-pending__act',
 ): HTMLButtonElement {
   const consoleAgent = opts?.consoleAgent;
   const send = opts?.sendCommand;
+  const resolveCmd = typeof commandOrGetter === 'function' ? commandOrGetter : () => commandOrGetter;
   const btn = h('button', {
-    class: 'ui-btn ui-btn--xs ui-pending__act',
+    class: `ui-btn ui-btn--xs ${extraClass}`,
     type: 'button',
     text: label,
   });
@@ -81,7 +85,7 @@ function createActionButton(
     setTitle(btn, tr('Console interativo fechado: abra uma sessão interativa do Claude Code no terminal para usar este botão'));
     return btn;
   }
-  const idleTitle = tr('Enviar "{0}" para {1} (pede confirmação antes de mandar)', [command, consoleAgent.name]);
+  const idleTitle = tr('Enviar comando para {0} (pede confirmação antes de mandar)', [consoleAgent.name]);
   setTitle(btn, idleTitle);
   let armedTimer: ReturnType<typeof setTimeout> | null = null;
   let busy = false;
@@ -99,6 +103,13 @@ function createActionButton(
 
   btn.addEventListener('click', async () => {
     if (busy || done) return;
+    const command = resolveCmd().trim();
+    if (!command) {
+      setText(feedbackEl, tr('Escreva ou edite os pontos da correção antes de enviar.'));
+      feedbackEl.classList.add('is-error');
+      setHidden(feedbackEl, false);
+      return;
+    }
     if (!armedTimer) {
       btn.classList.add('is-armed');
       setText(btn, confirmLabel);
@@ -142,23 +153,47 @@ function createActionButton(
   return btn;
 }
 
-function buildActionButtonsForPending(p: PipelinePending, feedbackEl: HTMLElement, opts?: PendingItemsOptions): HTMLElement[] {
+function buildActionButtonsForPending(
+  p: PipelinePending,
+  feedbackEl: HTMLElement,
+  opts?: PendingItemsOptions,
+  onRequestCorrection?: () => void,
+): HTMLElement[] {
   const out: HTMLElement[] = [];
-  if (!p.command || !opts?.sendCommand) return out;
   const target = p.entrega ?? p.task;
-  const label = p.kind === 'cp1' || p.kind === 'prototype' ? tr('Aprovar') : tr('Recuperar');
-  const confirmLabel =
-    p.kind === 'cp1'
-      ? tr('Aprovar o CP1 de {0}?', [target])
-      : p.kind === 'prototype'
-        ? tr('Aprovar o protótipo de {0}?', [target])
-        : p.command.endsWith(' validate')
-          ? tr('Recuperar {0} p/ validação?', [target])
-          : tr('Recuperar {0}?', [target]);
-  out.push(createActionButton(label, confirmLabel, p.command, feedbackEl, opts));
-  if (p.kind === 'blocked' && (p.reason?.startsWith('dev:') || p.reason?.includes(': dev:')) && !p.command.endsWith(' validate')) {
-    const valCmd = `RECUPERAR ${target} validate`;
-    out.push(createActionButton(tr('Validar'), tr('Recuperar {0} p/ validação?', [target]), valCmd, feedbackEl, opts));
+  const cmd = p.command ?? (p.kind === 'draft' ? `CONCLUIR ${target}` : undefined);
+  if (cmd && opts?.sendCommand) {
+    const label =
+      p.kind === 'cp1' || p.kind === 'prototype'
+        ? tr('Aprovar')
+        : p.kind === 'draft'
+          ? tr('Concluir')
+          : tr('Recuperar');
+    const confirmLabel =
+      p.kind === 'cp1'
+        ? tr('Aprovar o CP1 de {0}?', [target])
+        : p.kind === 'prototype'
+          ? tr('Aprovar o protótipo de {0}?', [target])
+          : p.kind === 'draft'
+            ? tr('Concluir {0}?', [target])
+            : cmd.endsWith(' validate')
+              ? tr('Recuperar {0} p/ validação?', [target])
+              : tr('Recuperar {0}?', [target]);
+    out.push(createActionButton(label, confirmLabel, cmd, feedbackEl, opts));
+    if (p.kind === 'blocked' && (p.reason?.startsWith('dev:') || p.reason?.includes(': dev:')) && !cmd.endsWith(' validate')) {
+      const valCmd = `RECUPERAR ${target} validate`;
+      out.push(createActionButton(tr('Validar'), tr('Recuperar {0} p/ validação?', [target]), valCmd, feedbackEl, opts));
+    }
+  }
+  if ((p.kind === 'draft' || p.kind === 'blocked') && onRequestCorrection) {
+    const corrBtn = h('button', {
+      class: 'ui-btn ui-btn--xs ui-pending__corr-btn',
+      type: 'button',
+      text: tr('Pedir correção'),
+      title: tr('Abrir a revisão de {0}, remover ou acrescentar pontos e devolver para o autor corrigir', [target]),
+    });
+    corrBtn.addEventListener('click', onRequestCorrection);
+    out.push(corrBtn);
   }
   return out;
 }
@@ -199,20 +234,26 @@ export function groupPendingByEntrega(items: readonly PipelinePending[]): Pipeli
   return out;
 }
 
-// ---------------------------------------------------------------- janela flutuante de leitura (Spec / Plano)
+// ---------------------------------------------------------------- janela flutuante de leitura (Spec / Revisão / Entrega / Plano)
+
+const DOC_DEFAULT_NAME: Record<PipelineDocKind, string> = {
+  spec: 'task-spec.md',
+  review: 'review-report.md',
+  docs: 'documentacao-tecnica.md',
+  plan: 'plan.md',
+};
 
 class PipelineDocModal {
   readonly el: HTMLElement;
   private titleEl: HTMLElement;
   private subEl: HTMLElement;
-  private specTab: HTMLButtonElement;
-  private planTab: HTMLButtonElement;
+  private tabButtons: Record<PipelineDocKind, HTMLButtonElement>;
   private scrollEl: HTMLElement;
   private mdEl: HTMLElement;
   private footEl: HTMLElement;
   private movable: Movable | null = null;
   private currentTask = '';
-  private currentDoc: 'spec' | 'plan' = 'plan';
+  private currentDoc: PipelineDocKind = 'spec';
   private rawContent = '';
   private reqSeq = 0;
 
@@ -222,21 +263,44 @@ class PipelineDocModal {
     this.titleEl = h('strong', { class: 'ui-term__name' });
     this.subEl = h('span', { class: 'ui-term__room' });
 
-    this.specTab = h('button', {
-      class: 'ui-seg__opt ui-pipe-doc__tab',
-      type: 'button',
-      role: 'tab',
-      text: tr('Spec'),
-      title: tr('Ler task-spec.md'),
-    });
-    this.planTab = h('button', {
-      class: 'ui-seg__opt ui-pipe-doc__tab',
-      type: 'button',
-      role: 'tab',
-      text: tr('Plano'),
-      title: tr('Ler plan.md'),
-    });
-    const tabs = h('div', { class: 'ui-seg ui-pipe-doc__tabs', role: 'tablist' }, this.specTab, this.planTab);
+    this.tabButtons = {
+      spec: h('button', {
+        class: 'ui-seg__opt ui-pipe-doc__tab',
+        type: 'button',
+        role: 'tab',
+        text: tr('Spec'),
+        title: tr('Ler especificação da funcionalidade (task-spec.md)'),
+      }),
+      review: h('button', {
+        class: 'ui-seg__opt ui-pipe-doc__tab',
+        type: 'button',
+        role: 'tab',
+        text: tr('Revisão'),
+        title: tr('Ler parecer da revisão (review-report.md)'),
+      }),
+      docs: h('button', {
+        class: 'ui-seg__opt ui-pipe-doc__tab',
+        type: 'button',
+        role: 'tab',
+        text: tr('Entrega'),
+        title: tr('Ler documentação técnica da entrega (documentacao-tecnica.md)'),
+      }),
+      plan: h('button', {
+        class: 'ui-seg__opt ui-pipe-doc__tab',
+        type: 'button',
+        role: 'tab',
+        text: tr('Plano'),
+        title: tr('Ler planos técnicos gerados pelos runners (plan.md)'),
+      }),
+    };
+    const tabs = h(
+      'div',
+      { class: 'ui-seg ui-pipe-doc__tabs', role: 'tablist' },
+      this.tabButtons.spec,
+      this.tabButtons.review,
+      this.tabButtons.docs,
+      this.tabButtons.plan,
+    );
 
     const copyDocBtn = copyButton(() => this.rawContent, tr('Copiar texto do documento'));
     const closeBtn = iconButton(ICONS.close, tr('Fechar janela (Esc)'), () => this.close(), 'ui-icon-btn--sm ui-term__close');
@@ -302,10 +366,10 @@ class PipelineDocModal {
     setHidden(this.el, true);
   }
 
-  async open(p: PipelinePending, doc: 'spec' | 'plan', opts?: PendingItemsOptions): Promise<void> {
+  async open(p: PipelinePending, doc: PipelineDocKind, opts?: PendingItemsOptions, openCorrection = false): Promise<void> {
     this.mount();
     const target = p.entrega ?? p.task;
-    if (!this.el.hidden && this.currentTask === target && this.currentDoc === doc) {
+    if (!this.el.hidden && this.currentTask === target && this.currentDoc === doc && !openCorrection) {
       this.close();
       return;
     }
@@ -313,51 +377,121 @@ class PipelineDocModal {
     this.currentDoc = doc;
     this.movable?.restore();
 
-    const switchDoc = (next: 'spec' | 'plan') => {
+    const switchDoc = (next: PipelineDocKind) => {
       if (this.currentDoc === next && !this.el.hidden) return;
       this.currentTask = '';
       void this.open(p, next, opts);
     };
-    this.specTab.onclick = () => switchDoc('spec');
-    this.planTab.onclick = () => switchDoc('plan');
-    this.specTab.classList.toggle('is-active', doc === 'spec');
-    this.planTab.classList.toggle('is-active', doc === 'plan');
-    setAttr(this.specTab, 'aria-selected', doc === 'spec' ? 'true' : 'false');
-    setAttr(this.planTab, 'aria-selected', doc === 'plan' ? 'true' : 'false');
+    for (const k of ['spec', 'review', 'docs', 'plan'] as const) {
+      const b = this.tabButtons[k];
+      b.onclick = () => switchDoc(k);
+      b.classList.toggle('is-active', doc === k);
+      setAttr(b, 'aria-selected', doc === k ? 'true' : 'false');
+    }
 
-    const fileName = doc === 'spec' ? 'task-spec.md' : 'plan.md';
+    const fileName = DOC_DEFAULT_NAME[doc];
     setText(this.titleEl, `${target} · ${fileName}`);
     setText(this.subEl, `${WHAT_LABEL[p.kind]()} · ${target}`);
     this.rawContent = '';
     setText(this.mdEl, tr('Carregando…'));
 
-    // Rodapé da janela com a linha do comando e o botão Aprovar/Recuperar ali mesmo
+    const cmd = p.command ?? (p.kind === 'draft' ? `CONCLUIR ${target}` : undefined);
     const feedback = h('span', {
       class: 'ui-pending__feedback',
-      hidden: !(opts?.sendCommand && !opts.consoleAgent && p.command),
-      text: opts?.sendCommand && !opts.consoleAgent && p.command ? tr('Console interativo fechado: abra uma sessão no terminal para habilitar o botão.') : '',
+      hidden: !(opts?.sendCommand && !opts.consoleAgent && cmd),
+      text: opts?.sendCommand && !opts.consoleAgent && cmd ? tr('Console interativo fechado: abra uma sessão no terminal para habilitar os botões.') : '',
     });
-    const actions = buildActionButtonsForPending(p, feedback, opts);
+
+    // Caixa de curadoria/correção: permite carregar os pontos da revisão da IA, apagar o que descartar e acrescentar
+    const textarea = h('textarea', {
+      class: 'ui-input ui-pipe-doc__textarea',
+      attrs: {
+        rows: '5',
+        placeholder: tr('Edite os pontos da revisão (apague o que descartar e acrescente o que faltar) para enviar ao autor…'),
+      },
+    }) as HTMLTextAreaElement;
+
+    const loadReviewIntoTextarea = async () => {
+      if (this.currentDoc === 'review' && this.rawContent.trim()) {
+        textarea.value = this.rawContent.trim();
+        return;
+      }
+      const fetchDoc = opts?.fetchDoc ?? defaultFetchPipelineDoc;
+      let r = await fetchDoc(target, 'review');
+      if ('error' in r && p.entrega && p.entrega !== p.task) {
+        r = await fetchDoc(p.task, 'review');
+      }
+      if (!('error' in r) && r.content.trim()) {
+        textarea.value = r.content.trim();
+      }
+    };
+
+    const useReviewBtn = h('button', {
+      class: 'ui-btn ui-btn--xs ui-pipe-doc__use-review',
+      type: 'button',
+      text: tr('Carregar pontos da revisão'),
+      title: tr('Copia o parecer da revisão (review-report.md) para a caixa de edição para você remover ou acrescentar itens'),
+    });
+    useReviewBtn.addEventListener('click', () => void loadReviewIntoTextarea());
+
+    const sendCorrBtn = createActionButton(
+      tr('Enviar correção'),
+      tr('Confirmar correção de {0}?', [target]),
+      () => {
+        const val = (textarea.value ?? '').trim();
+        if (!val) return '';
+        return `CORRIGIR ${target}: ${val.replace(/\r?\n/g, '\\n')}`;
+      },
+      feedback,
+      opts,
+      'ui-pending__corr-send',
+    );
+
+    const corrBox = h(
+      'div',
+      { class: 'ui-pipe-doc__corr', hidden: !openCorrection },
+      h(
+        'div',
+        { class: 'ui-pipe-doc__corr-head' },
+        h('span', {
+          class: 'ui-pipe-doc__corr-hint',
+          text: tr('Curadoria da revisão: remova pontos da IA que não devem ser cobrados ou acrescente os seus (vai para DECISOES-HUMANAS.md):'),
+        }),
+        useReviewBtn,
+      ),
+      textarea,
+      h('div', { class: 'ui-pipe-doc__corr-actions' }, sendCorrBtn),
+    );
+
+    const toggleCorrection = () => {
+      const nextOpen = corrBox.hidden;
+      setHidden(corrBox, !nextOpen);
+      if (nextOpen && !textarea.value) {
+        void loadReviewIntoTextarea();
+      }
+    };
+
+    const actions = buildActionButtonsForPending(p, feedback, opts, toggleCorrection);
     const footChildren: HTMLElement[] = [];
-    if (p.command) {
+    if (cmd) {
       footChildren.push(
         h(
           'div',
           { class: 'ui-copy-row ui-pending__cmd ui-pipe-doc__cmd' },
-          h('code', { text: p.command }),
-          copyButton(() => p.command ?? '', tr('Copiar a linha (mande só ela na sua sessão interativa)')),
+          h('code', { text: cmd }),
+          copyButton(() => cmd, tr('Copiar a linha (mande só ela na sua sessão interativa)')),
           ...actions,
         ),
       );
     }
-    footChildren.push(feedback);
+    footChildren.push(corrBox, feedback);
     if (typeof this.footEl.replaceChildren === 'function') {
       this.footEl.replaceChildren(...footChildren);
     } else {
       this.footEl.innerHTML = '';
       this.footEl.append(...footChildren);
     }
-    setHidden(this.footEl, !p.command);
+    setHidden(this.footEl, !cmd && openCorrection === false);
     setHidden(this.el, false);
     this.scrollEl.scrollTop = 0;
 
@@ -374,6 +508,9 @@ class PipelineDocModal {
     }
     this.rawContent = res.content;
     setText(this.titleEl, `${target} · ${res.name}`);
+    if (openCorrection && doc === 'review' && !textarea.value && res.content.trim()) {
+      textarea.value = res.content.trim();
+    }
     if (typeof document !== 'undefined' && typeof document.createDocumentFragment === 'function' && typeof this.mdEl.replaceChildren === 'function') {
       this.mdEl.replaceChildren(renderMarkdown(res.content));
     } else {
@@ -396,6 +533,7 @@ export function resetPipelineDocModalForTest(): void {
 export function pendingItems(items: readonly PipelinePending[], opts?: PendingItemsOptions): HTMLElement[] {
   return groupPendingByEntrega(items).map((p) => {
     const target = p.entrega ?? p.task;
+    const cmd = p.command ?? (p.kind === 'draft' ? `CONCLUIR ${target}` : undefined);
     const specBtn = h('button', {
       class: 'ui-btn ui-btn--xs ui-pending__doc-btn',
       type: 'button',
@@ -408,15 +546,25 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
       text: tr('Plano'),
       title: tr('Abrir plan.md de {0} em janela de leitura', [target]),
     });
+    const reviewBtn = h('button', {
+      class: 'ui-btn ui-btn--xs ui-pending__doc-btn',
+      type: 'button',
+      text: tr('Revisão'),
+      title: tr('Abrir parecer de revisão (review-report.md) de {0}', [target]),
+    });
     specBtn.addEventListener('click', () => void getDocModal().open(p, 'spec', opts));
     planBtn.addEventListener('click', () => void getDocModal().open(p, 'plan', opts));
+    reviewBtn.addEventListener('click', () => void getDocModal().open(p, 'review', opts));
 
     const feedback = h('span', {
       class: 'ui-pending__feedback',
-      hidden: !(opts?.sendCommand && !opts.consoleAgent && p.command),
-      text: opts?.sendCommand && !opts.consoleAgent && p.command ? tr('Console interativo fechado: abra uma sessão no terminal para habilitar o botão.') : '',
+      hidden: !(opts?.sendCommand && !opts.consoleAgent && cmd),
+      text: opts?.sendCommand && !opts.consoleAgent && cmd ? tr('Console interativo fechado: abra uma sessão no terminal para habilitar o botão.') : '',
     });
-    const actionButtons = buildActionButtonsForPending(p, feedback, opts);
+    const actionButtons = buildActionButtonsForPending(p, feedback, opts, () => {
+      void getDocModal().open(p, 'review', opts, true);
+    });
+    const docButtons = p.kind === 'draft' || p.kind === 'blocked' ? [specBtn, planBtn, reviewBtn] : [specBtn, planBtn];
 
     return h(
       'li',
@@ -425,16 +573,16 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
         'div',
         { class: 'ui-pending__head' },
         h('span', { class: 'ui-pending__what', text: `${WHAT_LABEL[p.kind]()} · ${target}` }),
-        h('span', { class: 'ui-pending__docs' }, specBtn, planBtn),
+        h('span', { class: 'ui-pending__docs' }, ...docButtons),
       ),
       ...(p.reason ? [h('span', { class: 'ui-pending__reason', text: p.reason })] : []),
-      ...(p.command
+      ...(cmd
         ? [
             h(
               'span',
               { class: 'ui-copy-row ui-pending__cmd' },
-              h('code', { text: p.command }),
-              copyButton(() => p.command ?? '', tr('Copiar a linha (mande só ela na sua sessão interativa)')),
+              h('code', { text: cmd }),
+              copyButton(() => cmd, tr('Copiar a linha (mande só ela na sua sessão interativa)')),
               ...actionButtons,
             ),
           ]

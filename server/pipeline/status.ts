@@ -103,18 +103,27 @@ export function pendingCommand(p: PipelinePending): string | undefined {
     if (p.reason?.includes('Dev sem progresso')) return `RECUPERAR ${target} validate`;
     return `RECUPERAR ${target}`;
   }
+  if (p.kind === 'draft') return `CONCLUIR ${target}`;
   return undefined;
 }
 
+export type PipelineDocKind = 'spec' | 'plan' | 'review' | 'docs';
 const DOC_MAX_BYTES = 256 * 1024;
-const DOC_FILES: Record<'spec' | 'plan', string> = {
+const DOC_FILES: Record<PipelineDocKind, string> = {
   spec: 'task-spec.md',
   plan: 'plan.md',
+  review: 'review-report.md',
+  docs: 'documentacao-tecnica.md',
 };
 
+function isDocKind(d: string): d is PipelineDocKind {
+  return d === 'spec' || d === 'plan' || d === 'review' || d === 'docs';
+}
+
 /**
- * Lê a spec (`task-spec.md`) ou o plano (`plan.md`) de uma funcionalidade (`entrega`) ou tarefa em `_pipeline/tarefas/`,
- * somente leitura. Quando `task` é uma `entrega` sem `plan.md` próprio, consolida os planos das sub-tarefas da entrega.
+ * Lê a spec (`task-spec.md`), plano (`plan.md`), revisão (`review-report.md`) ou documentação (`documentacao-tecnica.md`)
+ * de uma funcionalidade (`entrega`) ou tarefa em `_pipeline/tarefas/`, somente leitura.
+ * Quando `task` é uma `entrega`, consolida os documentos das sub-tarefas da entrega.
  */
 export function readPipelineDoc(
   readDir: string,
@@ -122,8 +131,8 @@ export function readPipelineDoc(
   doc: string,
   read: (f: string) => string = (f) => readFileSync(f, 'utf8'),
   listDir: (d: string) => string[] = (d) => readdirSync(d),
-): { task: string; doc: 'spec' | 'plan'; name: string; content: string } | undefined {
-  if (!TASK_ID.test(task) || (doc !== 'spec' && doc !== 'plan')) return undefined;
+): { task: string; doc: PipelineDocKind; name: string; content: string } | undefined {
+  if (!TASK_ID.test(task) || !isDocKind(doc)) return undefined;
   const name = DOC_FILES[doc];
   try {
     const content = read(join(readDir, 'tarefas', task, name)).slice(0, DOC_MAX_BYTES);
@@ -155,7 +164,7 @@ export function readPipelineDoc(
         const c = read(join(tarefasDir, m, name)).trim();
         if (c) parts.push(`# ${m}\n\n${c}`);
       } catch {
-        // sub-tarefa ainda sem plan.md
+        // sub-tarefa ainda sem este documento
       }
     }
     if (!parts.length) return undefined;

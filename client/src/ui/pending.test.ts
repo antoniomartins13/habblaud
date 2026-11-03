@@ -29,6 +29,7 @@ class FakeElement {
   innerHTML = '';
   title = '';
   type = '';
+  value = '';
   hidden = false;
   disabled = false;
   tabIndex = 0;
@@ -174,5 +175,36 @@ describe('pendingItems (botão Aprovar/Recuperar + Spec/Plano)', () => {
     await Promise.resolve();
     expect(send).toHaveBeenCalledWith('ger', 'APROVAR CP1 transparencia-ajustes-4 bf700af09e');
     expect(act.classList.contains('is-done')).toBe(true);
+  });
+
+  it('permite Concluir ou Pedir correção (editando os pontos da revisão da IA) em entregas prontas ou bloqueadas', async () => {
+    const elements = stubDom();
+    const consoleAgent = agent({ id: 'ger', name: 'Andrius' });
+    const send = vi.fn().mockResolvedValue({ message: { id: 'm2' } });
+    const fetchDoc = vi.fn().mockResolvedValue({ name: 'review-report.md', content: '- Item 1 da IA\n- Item 2 da IA' });
+    const draftItem: PipelinePending = {
+      task: 'aj4-back',
+      entrega: 'transparencia-ajustes-4',
+      kind: 'draft',
+      command: 'CONCLUIR transparencia-ajustes-4',
+    };
+    pendingItems([draftItem], { consoleAgent, sendCommand: send, fetchDoc });
+
+    const corrBtn = elements.find((el) => el.className.includes('ui-pending__corr-btn'))!;
+    corrBtn.click();
+    await Promise.resolve();
+    expect(fetchDoc).toHaveBeenCalledWith('transparencia-ajustes-4', 'review');
+
+    const textarea = elements.find((el) => el.className.includes('ui-pipe-doc__textarea'))!;
+    expect(textarea.value).toBe('- Item 1 da IA\n- Item 2 da IA');
+    // Usuário remove o Item 1 da IA e acrescenta um ponto próprio:
+    textarea.value = '- Item 2 da IA\n- Ponto acrescentado pelo Antonio';
+
+    const sendCorr = elements.find((el) => el.className.includes('ui-pending__corr-send'))!;
+    sendCorr.click();
+    expect(send).not.toHaveBeenCalled();
+    sendCorr.click();
+    await Promise.resolve();
+    expect(send).toHaveBeenCalledWith('ger', 'CORRIGIR transparencia-ajustes-4: - Item 2 da IA\\n- Ponto acrescentado pelo Antonio');
   });
 });

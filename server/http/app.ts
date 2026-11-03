@@ -74,8 +74,8 @@ export interface ApiDeps {
   stop?: StopService;
   /** Foto do runner do pipeline enviada pelo auxiliar do host (POST /api/host/pipeline); ausente = desligado. */
   pipelineStatus?: (raw: unknown) => void;
-  /** Leitura somente-leitura da spec/plano de uma tarefa do pipeline (GET /api/pipeline/doc). */
-  pipelineDoc?: (task: string, doc: string) => { task: string; doc: 'spec' | 'plan'; name: string; content: string } | undefined;
+  /** Leitura somente-leitura de documentos de uma funcionalidade/tarefa do pipeline (GET /api/pipeline/doc). */
+  pipelineDoc?: (task: string, doc: string) => { task: string; doc: string; name: string; content: string } | undefined;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
