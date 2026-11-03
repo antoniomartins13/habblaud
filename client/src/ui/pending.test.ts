@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentInfo, PipelinePending } from '../../../shared/types';
-import { findInteractiveConsole, pendingItems } from './pending';
+import { findInteractiveConsole, pendingItems, resetPipelineDocModalForTest } from './pending';
 
 function agent(overrides: Partial<AgentInfo> & { id: string; name: string }): AgentInfo {
   return {
@@ -31,6 +31,14 @@ class FakeElement {
   type = '';
   hidden = false;
   disabled = false;
+  tabIndex = 0;
+  scrollTop = 0;
+  parentElement: FakeElement | null = null;
+  onclick: (() => void) | null = null;
+  style = {
+    removeProperty: () => {},
+    setProperty: () => {},
+  };
   children: FakeElement[] = [];
   private classes = new Set<string>();
   private attrs = new Map<string, string>();
@@ -66,16 +74,30 @@ class FakeElement {
     if (name === 'click') this.clicks.push(fn);
   }
   append(...nodes: unknown[]): void {
-    for (const n of nodes) if (n instanceof FakeElement) this.children.push(n);
+    for (const n of nodes) {
+      if (n instanceof FakeElement) {
+        n.parentElement = this;
+        this.children.push(n);
+      }
+    }
+  }
+  replaceChildren(...nodes: unknown[]): void {
+    this.children = [];
+    this.append(...nodes);
   }
   click(): void {
-    if (!this.disabled) for (const fn of this.clicks) fn();
+    if (this.disabled) return;
+    this.onclick?.();
+    for (const fn of this.clicks) fn();
   }
 }
 
 function stubDom(): FakeElement[] {
   const elements: FakeElement[] = [];
+  const body = new FakeElement();
   vi.stubGlobal('document', {
+    body,
+    querySelector: () => body,
     createElement: () => {
       const el = new FakeElement();
       elements.push(el);
@@ -86,6 +108,7 @@ function stubDom(): FakeElement[] {
 }
 
 afterEach(() => {
+  resetPipelineDocModalForTest();
   vi.unstubAllGlobals();
 });
 
@@ -130,13 +153,17 @@ describe('pendingItems (botão Aprovar/Recuperar + Spec/Plano)', () => {
     pendingItems([item], { consoleAgent, sendCommand: send, fetchDoc });
 
     const docBtns = elements.filter((el) => el.className.includes('ui-pending__doc-btn'));
-    const docBody = elements.find((el) => el.className.includes('ui-pending__doc-body'))!;
     docBtns[1]!.click();
     await Promise.resolve();
     expect(fetchDoc).toHaveBeenCalledWith('aj4-back', 'plan');
-    expect(docBody.textContent).toBe('# Plano detalhado');
+    const modal = elements.find((el) => el.className.includes('ui-pipe-doc ')) ?? elements.find((el) => el.className.endsWith('ui-pipe-doc'))!;
+    const docMd = elements.find((el) => el.className.includes('ui-pipe-doc__md'))!;
+    expect(modal.hidden).toBe(false);
+    expect(docMd.textContent).toBe('# Plano detalhado');
 
-    const act = elements.find((el) => el.className.includes('ui-pending__act'))!;
+    const actButtons = elements.filter((el) => el.className.includes('ui-pending__act'));
+    expect(actButtons.length).toBe(2); // um no item e outro no rodapé da janela flutuante
+    const act = actButtons[1]!;
     act.click();
     expect(send).not.toHaveBeenCalled();
     expect(act.classList.contains('is-armed')).toBe(true);
