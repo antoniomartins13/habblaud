@@ -4,9 +4,13 @@ import { NAME_MAX, parseAppearanceParts, parseCharacterName, parseSeed } from '.
 import type { AccessInfo, AgentInfo, ModSummary, OfficeSnapshot, SourceInfo, UpdateStatus } from '../../shared/types';
 import type { AccountsService } from '../accounts/service';
 import { handleCodexEvent } from '../codex/http';
+import { handleAntigravityEvent } from '../antigravity/http';
+import { handleOpencodeEvent } from '../opencode/http';
 import type { DayStatsService } from '../history/daystats';
 import type { Office } from '../model/office';
 import type { CodexLive } from '../sources/codex/live';
+import type { AntigravityLive } from '../sources/antigravity/live';
+import type { OpencodeLive } from '../sources/opencode/live';
 import type { SessionLookup } from '../sources/source';
 import { isJsonContentType, isLoopbackHost } from './guard';
 import type { RemoteFeature } from './remote';
@@ -75,6 +79,21 @@ export interface ApiDeps {
   deliveries?: DeliveryIndex;
   /** Quem lê os arquivos das entregas (e, para o auxiliar do host, /api/host/files/*; deliveries/fetcher.ts). */
   files?: FileFetcher;
+  /**
+   * Eventos do plugin do OpenCode (POST /api/opencode/events, server/opencode/http.ts): a rota só existe com
+   * `opencodeEvents` (HABBLAUD_OPENCODE ligado; 404 sem ele). `opencodeLive` é a fonte do OpenCode, que pode faltar (sem
+   * opencode.db ou sem node:sqlite): o plugin continua mandando e a rota responde {ok: false}. Mesma trava do Codex.
+   */
+  opencodeEvents?: boolean;
+  opencodeLive?: OpencodeLive;
+  /**
+   * Eventos do hook do Antigravity (POST /api/antigravity/events, server/antigravity/http.ts): a rota só existe com
+   * `antigravityEvents` (HABBLAUD_ANTIGRAVITY ligado; 404 sem ele). Mesma trava do Codex e do OpenCode.
+   */
+  antigravityEvents?: boolean;
+  antigravityLive?: AntigravityLive;
+  /** Libera as perguntas do OpenCode ainda abertas no escritório (cartão) de uma sessão: chamada em question.replied/rejected. */
+  releaseOpencodeQuestions?: (sessionId: string) => void;
   /** Renomeia a sala (POST /api/rooms/rename {id, name}; vazio volta ao padrão). Devolve o nome em uso, ou undefined se a sala não existe. */
   renameRoom?: (id: string, name: string) => string | undefined;
   /** Estatísticas do "Meu dia" (GET /api/stats, http/stats.ts). */
@@ -136,7 +155,9 @@ function isMessagesPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path === '/api/codex/bridge/poll' ||
-    path === '/api/codex/bridge/ack'
+    path === '/api/codex/bridge/ack' ||
+    path === '/api/opencode/bridge/poll' ||
+    path === '/api/opencode/bridge/ack'
   );
 }
 
@@ -376,6 +397,8 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           pty: !!deps.pty && !remote,
           messages: !!deps.messages && (!remote || trusted(req, 'messages')),
           codexEvents: !!deps.codexLive,
+          ...(deps.opencodeEvents ? { opencodeEvents: true, opencodeSource: !!deps.opencodeLive } : {}),
+          ...(deps.antigravityEvents ? { antigravityEvents: true, antigravitySource: !!deps.antigravityLive } : {}),
           updates: updatesSummary(deps.updates?.status()),
           sources: deps.sources(),
           accounts: accounts.allEntries().map((a) =>
@@ -630,6 +653,22 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           })
           .catch((err) => fail(res, err));
       }
+      return true;
+    }
+    if (path === '/api/opencode/events' && deps.opencodeEvents) {
+      // Eventos do plugin do OpenCode: só observam, mas só valem vindos do próprio computador (mesma trava do Codex).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!isLoopbackHost(req.headers.host) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: tr('eventos do OpenCode só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)') });
+      } else handleOpencodeEvent(req, res, { live: deps.opencodeLive, releaseQuestions: deps.releaseOpencodeQuestions }).catch((err) => fail(res, err));
+      return true;
+    }
+    if (path === '/api/antigravity/events' && deps.antigravityEvents) {
+      // Eventos do hook do Antigravity: só observam, mas só valem vindos do próprio computador (mesma trava do Codex).
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!isLoopbackHost(req.headers.host) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: tr('eventos do Antigravity só são aceitos pelo próprio computador (http://localhost ou http://127.0.0.1)') });
+      } else handleAntigravityEvent(req, res, { live: deps.antigravityLive }).catch((err) => fail(res, err));
       return true;
     }
     if (isMessagesPath(path)) {

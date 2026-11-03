@@ -41,7 +41,7 @@ import {
 import { access } from '../net/access';
 import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
+import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, hasTerminal, noTerminalHint, providerOf, showsPermissionsPluginHint } from './provider';
 import { ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
@@ -583,7 +583,7 @@ class AgentView {
     // Sem o pedido no escritório: dá para responder por aqui com o plugin (só com a trava local, como o cartão). O Codex
     // não responde perguntas pelo escritório.
     const answerable =
-      !codex && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
+      showsPermissionsPluginHint(a) && !!asking?.questions?.length && !this.perm.visible && !this.ctx.store.mock && !!this.ctx.store.snapshot?.meta.terminal && access().permissions;
     setHidden(this.alertAnswerHint, !answerable);
 
     // Esperando o shell.
@@ -699,7 +699,8 @@ class AgentView {
     const kind = !this.id ? '' : router?.interactive(this.id) ? 'interativo' : !readOnly && this.pty.enabled && ptyControllable(this.last) ? 'em outro terminal' : 'ao vivo';
     setText(this.termRo, kind === 'interativo' ? tr('interativo') : kind === 'ao vivo' ? tr('ao vivo') : kind ? tr('em outro terminal') : '');
     // aria-disabled (e não disabled): o botão continua focável e a dica do porquê aparece no hover.
-    const enabled = open || (available && live);
+    const supported = hasTerminal(provider);
+    const enabled = open || (available && live && supported);
     if (enabled) setHidden(this.termWhy, true);
     setAttr(this.termBtn, 'aria-disabled', enabled ? null : 'true');
     this.termBtn.classList.toggle('is-disabled', !enabled);
@@ -718,14 +719,16 @@ class AgentView {
               : TERMINAL_UNAVAILABLE_HINT
           : !live
             ? tr('O agente já saiu do escritório.')
-            : kind === 'ao vivo'
-              ? tr('Ver a conversa desta sessão como no {0}, ao vivo{1} (T)', [
-                  provider === 'codex' ? 'Codex' : tr('terminal do Claude Code'),
-                  this.pty.enabled && ptyControllable(this.last) ? tr('; "Assumir daqui" continua nela aqui') : '',
-                ])
-              : kind === 'interativo'
-                ? tr('Abrir o terminal desta sessão, que roda aqui no Habblaud (T)')
-                : tr('Abrir o terminal: a sessão roda em outro terminal; dá para assumir daqui (T)'),
+            : !supported
+              ? noTerminalHint(provider)
+              : kind === 'ao vivo'
+                ? tr('Ver a conversa desta sessão como no {0}, ao vivo{1} (T)', [
+                    provider === 'codex' ? 'Codex' : tr('terminal do Claude Code'),
+                    this.pty.enabled && ptyControllable(this.last) ? tr('; "Assumir daqui" continua nela aqui') : '',
+                  ])
+                : kind === 'interativo'
+                  ? tr('Abrir o terminal desta sessão, que roda aqui no Habblaud (T)')
+                  : tr('Abrir o terminal: a sessão roda em outro terminal; dá para assumir daqui (T)'),
     );
   }
 

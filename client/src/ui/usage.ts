@@ -12,7 +12,7 @@ import type { UiContext } from './context';
 import { h, KeyedList, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { FIVE_HOURS_MS, relativeTime, usageLevel, usageWindowView, WEEK_MS, type UsageWindowView } from './format';
 import { ICONS } from './icons';
-import { isCodex } from './provider';
+import { isAntigravity, isCodex, isOpencode, providerOf } from './provider';
 import { usageRowFits } from './usage-row';
 import { createAccountChip, createProviderTag, updateAccountChip, updateProviderTag } from './widgets';
 import { tr } from '../../../shared/i18n';
@@ -21,6 +21,7 @@ export const SOURCE_LABEL: Record<NonNullable<AccountInfo['usage']>['source'], s
   cache: tr('cache do /usage do Claude Code'),
   statusline: tr('ao vivo (statusline do Claude Code)'),
   codex: tr('arquivos do Codex'),
+  antigravity: tr('ao vivo (statusline do agy)'),
 };
 
 /** Origem para mostrar: o arquivo ao vivo pode ter sido gravado pelo mod do Habblaud ou pelo tap. */
@@ -52,6 +53,8 @@ export function richText(text: string): Node[] {
 
 interface Meter {
   el: HTMLElement;
+  labelLong: HTMLElement;
+  labelShort: HTMLElement;
   bar: HTMLElement;
   pct: HTMLElement;
   reset: HTMLElement;
@@ -91,14 +94,11 @@ function createMeter(long: string, short: string, title: string): Meter {
   const resetLong = h('span', { class: 'ui-meter__reset-long' });
   const resetShort = h('span', { class: 'ui-meter__reset-short' });
   const reset = h('span', { class: 'ui-meter__reset' }, resetLong, resetShort);
-  const label = h(
-    'span',
-    { class: 'ui-meter__label' },
-    h('span', { class: 'ui-meter__label-long', text: long }),
-    h('span', { class: 'ui-meter__label-short', text: short, attrs: { 'aria-hidden': 'true' } }),
-  );
+  const labelLong = h('span', { class: 'ui-meter__label-long', text: long });
+  const labelShort = h('span', { class: 'ui-meter__label-short', text: short, attrs: { 'aria-hidden': 'true' } });
+  const label = h('span', { class: 'ui-meter__label' }, labelLong, labelShort);
   const el = h('div', { class: 'ui-meter', role: 'img', attrs: { 'aria-label': title } }, label, bar, pct, reset);
-  return { el, bar, pct, reset, resetLong, resetShort };
+  return { el, labelLong, labelShort, bar, pct, reset, resetLong, resetShort };
 }
 
 function updateMeter(m: Meter, view: UsageWindowView | null, windowName: string): void {
@@ -177,6 +177,7 @@ export function showsUsageAge(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'pr
 /** Linha embaixo do nome: e-mail; no Codex (sem e-mail), o plano; nas outras, a pasta. */
 export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir' | 'provider'>): string {
   if (a.email) return a.email;
+  if (a.provider === 'antigravity') return tr('Antigravity CLI');
   if (isCodex(a)) return a.plan ? tr('plano {0}', [a.plan]) : 'Codex';
   return a.configDir;
 }
@@ -185,8 +186,20 @@ export function usageSubtitle(a: Pick<AccountInfo, 'email' | 'plan' | 'configDir
 export function usageMessage(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): [string, string] {
   const state = cardState(a);
   if (state === 'noquota') return [tr('sem cota'), tr('sem cota')];
+  if (isOpencode(a)) return [tr('o OpenCode não tem cota única'), tr('sem cota')];
+  if (isAntigravity(a)) return [tr('sem dados: npm run antigravity:install -- --uso'), tr('sem dados')];
   if (isCodex(a)) return [tr('sem dados ainda'), tr('sem dados')];
   return [tr('sem dados de uso'), tr('sem dados')];
+}
+
+/** O botão "Como ativar" aparece? Não no OpenCode (sem cota única) nem no Antigravity (ainda sem leitura do uso) nem sem cota. */
+export function usageHowVisible(a: Pick<AccountInfo, 'usage' | 'usageStatus' | 'provider'>): boolean {
+  return !isOpencode(a) && !isAntigravity(a) && cardState(a) !== 'noquota';
+}
+
+/** O passo a passo "Como ter o uso ao vivo" (statusline do Claude Code) aparece na dica? Só no Claude Code. */
+export function usageSetupVisible(a: Pick<AccountInfo, 'provider'>): boolean {
+  return !isCodex(a) && !isOpencode(a) && !isAntigravity(a);
 }
 
 /** Explicação do cartão de uma conta do Codex (dica); '' nas outras. */
@@ -340,7 +353,7 @@ export class UsageCards {
     updateAccountChip(r.chip, a);
     setStyleVar(card, '--acc', a.color);
     setText(r.name, a.name);
-    updateProviderTag(r.prov, codex ? 'codex' : 'claude', a.name);
+    updateProviderTag(r.prov, providerOf(a), a.name);
     setText(r.email, usageSubtitle(a));
     setAttr(card, 'aria-label', tr('{0}{1}: uso do plano', [a.name, codex ? ' (Codex)' : '']));
 
@@ -351,9 +364,17 @@ export class UsageCards {
     const week = usage ? usageWindowView(usage.sevenDay, usage.fetchedAt, now, WEEK_MS) : null;
     const showMeters = hasWindows(a);
     setHidden(r.meters, !showMeters);
+    // Antigravity: só há cotas semanais, e a barra leva o nome da cota (ex.: "Gemini"); a de 5 h não existe.
+    const agy = isAntigravity(a);
+    setHidden(r.five.el, agy);
+    const weekName = agy ? (usage?.labels?.sevenDay ?? 'Semana') : 'Semana';
+    setText(r.week.labelLong, weekName);
+    // O nome da cota vai inteiro também na forma curta ("Gemini", não "Gemi"); a coluna do rótulo se alarga (is-single).
+    setText(r.week.labelShort, agy ? weekName : 'Sem.');
+    r.meters.classList.toggle('is-single', agy);
     if (usage && showMeters) {
-      updateMeter(r.five, five, tr('Sessão de 5 horas'));
-      updateMeter(r.week, week, tr('Semana'));
+      if (!agy) updateMeter(r.five, five, tr('Sessão de 5 horas'));
+      updateMeter(r.week, week, agy ? tr('{0} (semana)', [weekName]) : tr('Semana'));
     }
     r.meters.classList.toggle('is-dim', state !== 'ok');
 
@@ -381,7 +402,7 @@ export class UsageCards {
     setText(r.msgLong, msgLong);
     setText(r.msgShort, msgShort);
     setHidden(r.msg, state !== 'empty' && state !== 'noquota');
-    setHidden(r.how, state === 'noquota');
+    setHidden(r.how, !usageHowVisible(a));
     r.msg.classList.toggle('is-noquota', state === 'noquota');
     setTitle(r.msg, state === 'noquota' ? codexUsageNote(a, now) : '');
     setText(r.howLong, codex ? tr('Como funciona') : tr('Como ativar'));
@@ -393,18 +414,28 @@ export class UsageCards {
 
   private updateTip(r: CardRefs, a: AccountInfo, state: CardState, five: UsageWindowView | null, week: UsageWindowView | null, now: number): void {
     const codex = isCodex(a);
+    const agy = isAntigravity(a);
+    const weekName = a.usage?.labels?.sevenDay ?? tr('Semana');
     setText(r.tipTitle, `${a.name}${codex && !/codex/i.test(a.name) ? ' · Codex' : ''}${a.plan ? tr(' · plano {0}', [a.plan]) : ''}`);
     const rows: [string, string][] = [];
     if (codex) rows.push([tr('Ferramenta'), 'Codex']);
     if (a.email) rows.push(['E-mail', a.email]);
     if (a.organization) rows.push([tr('Organização'), a.organization]);
     if (a.plan) rows.push([tr('Plano'), a.plan]);
-    rows.push([tr('Pasta'), a.configDir]);
+    if (!agy) rows.push([tr('Pasta'), a.configDir]);
     rows.push([tr('Sessões abertas'), String(a.sessions)]);
     const u = a.usage;
     if (u && (u.fiveHour || u.sevenDay)) {
-      rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
-      rows.push([tr('Semana'), week?.summary ?? '—']);
+      if (agy) {
+        rows.push([tr('{0} (semana)', [weekName]), week?.summary ?? '—']);
+        for (const e of u.extra ?? []) {
+          const v = usageWindowView(e.window, u.fetchedAt, now, WEEK_MS);
+          if (v) rows.push([tr('{0} (semana)', [e.label]), v.summary]);
+        }
+      } else {
+        rows.push([tr('Sessão de 5 h'), five?.summary ?? '—']);
+        rows.push([tr('Semana'), week?.summary ?? '—']);
+      }
       // Opus e Sonnet são janelas do Claude: no Codex não existem.
       const opus = codex ? null : usageWindowView(u.sevenDayOpus, u.fetchedAt, now, WEEK_MS);
       const sonnet = codex ? null : usageWindowView(u.sevenDaySonnet, u.fetchedAt, now, WEEK_MS);
@@ -424,6 +455,26 @@ export class UsageCards {
       setText(r.tipNote, note);
       setHidden(r.tipNote, !note);
       setHidden(r.tipSetup, true);
+      return;
+    }
+
+    // Antigravity: o mesmo número do /usage do agy, lido do statusline dele (opt-in); a dica diz como ligar.
+    if (isAntigravity(a)) {
+      setText(
+        r.tipNote,
+        u && state !== 'empty'
+          ? tr('É o mesmo número do /usage do agy (cota semanal por grupo de modelos), lido do statusline dele.')
+          : tr('Para mostrar o uso: npm run antigravity:install -- --uso (acrescenta um statusLine no settings.json do agy, com backup).'),
+      );
+      setHidden(r.tipNote, false);
+      setHidden(r.tipSetup, !usageSetupVisible(a));
+      return;
+    }
+    // OpenCode: vários provedores e contas, sem cota única; a dica não manda instalar nada.
+    if (isOpencode(a)) {
+      setText(r.tipNote, tr('O OpenCode usa vários provedores e contas, sem uma cota única para mostrar aqui.'));
+      setHidden(r.tipNote, false);
+      setHidden(r.tipSetup, !usageSetupVisible(a));
       return;
     }
 

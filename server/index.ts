@@ -37,6 +37,8 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { AntigravitySource } from './sources/antigravity/source';
+import { createOpencodeSource } from './sources/opencode/boot';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -138,6 +140,12 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+// OpenCode (sources/opencode/): lê o opencode.db só para leitura. Só entra com HABBLAUD_OPENCODE ligado e o banco existindo.
+const opencode = createOpencodeSource(config, { accounts, office });
+if (opencode) agents.add(opencode);
+// Antigravity (sources/antigravity/): só por eventos do hook dele (nenhum arquivo é lido). Entra com HABBLAUD_ANTIGRAVITY ligado.
+const antigravity = config.antigravity ? new AntigravitySource({ accounts, office, usageFile: join(config.usageDir, 'antigravity-quota.json') }) : undefined;
+if (antigravity) agents.add(antigravity);
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
@@ -274,6 +282,7 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      opencode: config.opencode,
     })
   : undefined;
 late.messages = messages;
@@ -372,6 +381,11 @@ const api = createApiHandler({
     return recentFolders(history ? await history.list().catch(() => []) : [], rooms);
   },
   codexLive,
+  opencodeEvents: config.opencode,
+  opencodeLive: opencode,
+  antigravityEvents: config.antigravity,
+  antigravityLive: antigravity,
+  releaseOpencodeQuestions: permissions ? (sessionId) => void permissions.releaseOpencodeQuestions(sessionId) : undefined,
   stats,
   updates,
   remote: config.remote ? { is: isRemoteRequest, allows: (f) => config.remote!.allow.has(f) } : undefined,
