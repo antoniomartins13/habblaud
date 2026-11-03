@@ -21,6 +21,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
+import { StopService } from './spawn/stop';
 import { PipelineRoomGroups } from './model/room-groups';
 import { createPtyRoutes } from './http/pty';
 import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
@@ -122,6 +123,8 @@ const office = new Office({
   names,
   roomAlias: (path) => roomAliases.get(path),
   roomGroup: roomGroups ? (cwd) => roomGroups.group(cwd) : undefined,
+  // Criado mais abaixo (depende da liberação do terminal): só é chamado depois do boot.
+  stop: () => stop?.available() === true,
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
@@ -272,6 +275,8 @@ const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
 const spawn = spawnOn
   ? new SpawnService(config.inDocker ? { attachments } : { opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
   : undefined;
+// Encerrar pelo escritório: no Docker, pelo mesmo auxiliar do host e com a mesma trava do novo agente.
+const stop = spawnOn && config.inDocker ? new StopService() : undefined;
 // Ditado: no Docker quem transcreve é o auxiliar do host; no Node, o servidor, se achar o Whisper local.
 const whisper = config.messages && !config.inDocker ? findWhisper() : undefined;
 const dictation = config.messages
@@ -373,6 +378,7 @@ const api = createApiHandler({
   messages: messages ? createMessageRoutes(messages) : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
+  stop,
   attachments,
   dictation,
   deliveries,

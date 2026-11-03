@@ -20,6 +20,7 @@ import { handleStatsRoute } from './stats';
 import type { TerminalStreams } from './terminal';
 import { tr } from '../../shared/i18n';
 import type { SpawnService } from '../spawn/spawn';
+import type { StopService } from '../spawn/stop';
 import { ATTACHMENT_BODY_MAX, parseAttachment, type AttachmentStore } from '../spawn/attachments';
 import type { SpawnFolder } from '../spawn/folders';
 import { AUDIO_BODY_MAX, type DictationService } from '../dictation/dictation';
@@ -69,6 +70,8 @@ export interface ApiDeps {
   codexLive?: CodexLive;
   /** Novo agente pelo escritório (/api/spawn e, para o auxiliar do host, /api/host/spawn/*; server/spawn/spawn.ts). */
   spawn?: SpawnService;
+  /** Encerrar sessões pelo escritório com o Habblaud no Docker (spawn/stop.ts); ausente = desligado. */
+  stop?: StopService;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
@@ -549,6 +552,51 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         if (info) sendJson(res, 200, info);
         else sendJson(res, 404, { error: tr('pedido desconhecido') });
       } else methodNotAllowed(res, path === '/api/spawn' ? 'GET, POST' : 'GET');
+      return true;
+    }
+    if (path === '/api/stop' || path.startsWith('/api/stop/')) {
+      // Encerrar uma sessão: age no computador, então a mesma trava do novo agente.
+      const stop = deps.stop;
+      if (!stop) sendJson(res, 403, { error: tr('encerrar pelo escritório desligado') });
+      else if (!trusted(req, 'spawn')) sendJson(res, 403, { error: denied(req, tr('sessões só são encerradas pelo próprio computador (http://localhost)')) });
+      else if (path === '/api/stop' && isRead) sendJson(res, 200, { available: stop.available() });
+      else if (path === '/api/stop' && method === 'POST') {
+        readJson(req)
+          .then((body) => {
+            const agentId = body && typeof body === 'object' ? (body as { agentId?: unknown }).agentId : undefined;
+            const a = typeof agentId === 'string' ? deps.office.get(agentId) : undefined;
+            if (!a) return sendJson(res, 404, { error: tr('agente desconhecido') });
+            if (a.kind !== 'main' || (a.provider && a.provider !== 'claude')) return sendJson(res, 400, { error: tr('só dá para encerrar sessões principais do Claude Code') });
+            const r = stop.submit(a.sessionId);
+            if ('stop' in r) return sendJson(res, 201, r.stop);
+            sendJson(res, r.error === 'invalid' ? 400 : 409, { error: r.reason });
+          })
+          .catch((err) => fail(res, err));
+      } else if (path !== '/api/stop' && isRead) {
+        const info = stop.get(decodeURIComponent(path.slice('/api/stop/'.length)));
+        if (info) sendJson(res, 200, info);
+        else sendJson(res, 404, { error: tr('pedido desconhecido') });
+      } else methodNotAllowed(res, path === '/api/stop' ? 'GET, POST' : 'GET');
+      return true;
+    }
+    if (path === '/api/host/stop/poll' || path === '/api/host/stop/ack') {
+      // Só o auxiliar do host, pela porta local (nunca pela remota), como /api/host/spawn.
+      const stop = deps.stop;
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!stop) sendJson(res, 403, { error: tr('encerrar pelo escritório desligado') });
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
+      } else if (path === '/api/host/stop/poll') {
+        req.resume();
+        sendJson(res, 200, { stops: stop.poll() });
+      } else {
+        readJson(req)
+          .then((body) => {
+            stop.ack(body);
+            sendJson(res, 200, { ok: true });
+          })
+          .catch((err) => fail(res, err));
+      }
       return true;
     }
     if (path === '/api/dictation' || path.startsWith('/api/dictation/')) {

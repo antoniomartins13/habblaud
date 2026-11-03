@@ -17,6 +17,7 @@
 // Arquivos e ditado usam rodadas com espera: o Habblaud só responde quando chega trabalho (ou a cada 20 s).
 // Ctrl+C para parar.
 import { statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isClaudeDir } from '../server/accounts/detect';
@@ -29,6 +30,7 @@ import { createWhisperTranscriber, findWhisper, type Transcriber } from '../serv
 import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/files';
 import { discoverClaudeDirs } from '../server/accounts/detect';
 import { HOST_WAIT_MS } from '../server/host-wait';
+import { stopSession, type HostStopDeps, type StopResult } from '../server/spawn/stop';
 import { readFileSync } from 'node:fs';
 
 export const DEFAULT_PORT = 4747;
@@ -251,6 +253,39 @@ export async function spawnRound(
 }
 
 /**
+ * Encerrar sessões pelo escritório: busca os pedidos (POST /api/host/stop/poll), acha cada sessão no registro das
+ * contas deste computador e encerra (`claude stop` ou SIGTERM conferido, spawn/stop.ts); confirma em
+ * /api/host/stop/ack. Nunca lança.
+ */
+export async function stopRound(
+  post: Post,
+  deps: HostStopDeps,
+  log: (line: string) => void = () => {},
+  stop: (sessionId: string, deps: HostStopDeps) => Promise<StopResult> = stopSession,
+): Promise<'down' | 'refused' | 'ok'> {
+  const polled = await post('/api/host/stop/poll', {});
+  if (!polled) return 'down';
+  const list = rec(polled.json)?.stops;
+  if (polled.status !== 200 || !Array.isArray(list)) return 'refused';
+  const results: Array<{ id: string; ok: boolean; how?: string; error?: string }> = [];
+  for (const raw of list) {
+    const id = typeof rec(raw)?.id === 'string' ? (rec(raw)!.id as string) : '';
+    const sessionId = typeof rec(raw)?.sessionId === 'string' ? (rec(raw)!.sessionId as string) : '';
+    if (!id) continue;
+    let r: StopResult;
+    try {
+      r = await stop(sessionId, deps);
+    } catch (err) {
+      r = { ok: false, error: String((err as Error)?.message ?? err) };
+    }
+    results.push(r.ok ? { id, ok: true, how: r.how } : { id, ok: false, error: r.error });
+    log(r.ok ? tr('✓ sessão {0} encerrada ({1})', [sessionId.slice(0, 8), r.how === 'job' ? 'claude stop' : 'SIGTERM']) : tr('✗ sessão {0} não encerrada: {1}', [sessionId.slice(0, 8), r.error]));
+  }
+  if (results.length) await post('/api/host/stop/ack', { results });
+  return 'ok';
+}
+
+/**
  * Ditado: busca os áudios (POST /api/host/dictation/poll), transcreve cada um com o Whisper local e devolve o texto e
  * o idioma em /api/host/dictation/ack. O texto nunca vai para a tela. Nunca lança.
  */
@@ -373,7 +408,11 @@ async function main(): Promise<void> {
   // Agentes novos desligados no Habblaud (sem HABBLAUD_PTY=1): pergunta de novo só a cada minuto.
   let spawnRetryAt = 0;
   let spawned: RoundResult = { state: 'ok', results: [] };
+  // Encerrar pelo escritório: o mesmo ritmo, e a mesma pausa de um minuto quando o Habblaud recusa.
+  const stopDeps: HostStopDeps = { accountDirs: discoverClaudeDirs(process.env), home: process.env.HOME || homedir(), claudeBin };
+  let stopRetryAt = 0;
   for (;;) {
+    if (Date.now() >= stopRetryAt && (await stopRound(post, stopDeps, log)) === 'refused') stopRetryAt = Date.now() + REFUSED_RETRY_MS;
     if (Date.now() >= spawnRetryAt) {
       spawned = await spawnRound(post, open, log, undefined, undefined, cli);
       if (spawned.state === 'refused') spawnRetryAt = Date.now() + REFUSED_RETRY_MS;

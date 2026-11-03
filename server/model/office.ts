@@ -59,6 +59,8 @@ export interface OfficeDeps {
   roomAlias?: (path: string) => string | undefined;
   /** Sala agrupada da pasta (model/room-groups.ts: funcionalidade do pipeline, MR em revisão), se houver. */
   roomGroup?: (cwd: string) => RoomGroup | undefined;
+  /** Encerrar pelo escritório (spawn/stop.ts): disponível agora? Ausente = recurso desligado. */
+  stop?: () => boolean;
   version: string;
   /** Build do cliente servido (ver OfficeSnapshot.meta.build); ausente no modo dev e nos testes. */
   build?: () => string | undefined;
@@ -1015,6 +1017,7 @@ export class Office {
         build: this.deps.build?.(),
         terminal: this.deps.terminal === true,
         messages: this.deps.messages !== undefined,
+        ...(this.deps.stop ? { stop: this.deps.stop() } : {}),
         ...(ptys ? { pty: ptys.status } : {}),
         updates: this.deps.updates?.(),
         ...(this.deps.world ? { world: this.deps.world() } : {}),

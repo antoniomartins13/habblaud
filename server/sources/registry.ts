@@ -23,6 +23,10 @@ export interface RegistryEntry {
   agent?: string;
   updatedAt?: number;
   statusUpdatedAt?: number;
+  /** Id curto da sessão em segundo plano (`claude --bg`): o que `claude stop <id>` recebe. */
+  jobId?: string;
+  /** Início do processo como o sistema o informa (Linux: starttime do /proc; Windows: FILETIME). */
+  procStart?: string;
 }
 
 function str(v: unknown): string | undefined {
@@ -58,6 +62,8 @@ export function parseRegistryEntry(raw: string): RegistryEntry | undefined {
     ['agent', str(j.agent)],
     ['updatedAt', num(j.updatedAt)],
     ['statusUpdatedAt', num(j.statusUpdatedAt)],
+    ['jobId', str(j.jobId)],
+    ['procStart', str(j.procStart)],
   ];
   for (const [k, v] of optional) if (v !== undefined) (e as unknown as Record<string, unknown>)[k] = v;
   return e;

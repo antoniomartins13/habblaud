@@ -11186,3 +11186,19 @@ html.is-replay #world {
 .ui-world-chip__visitors[hidden] {
   display: none;
 }
+
+/* Encerrar a sessão (Docker): o segundo clique confirma; armado, o botão fica vermelho. */
+.ui-stop-btn.is-armed {
+  background: var(--ui-danger, #c0392b);
+  border-color: var(--ui-danger, #c0392b);
+  color: #fff;
+}
+.ui-stop-btn[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+.ui-stop-msg {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ui-muted, #8b98b3);
+}

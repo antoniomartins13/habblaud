@@ -45,6 +45,7 @@ import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel,
 import { ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
+import { canStop, stopAgent } from './stop';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
 import type { PtyControl } from './pty';
@@ -215,6 +216,12 @@ class AgentView {
   private statusSince: HTMLElement;
   private followBtn: HTMLButtonElement;
   private termBtn: HTMLButtonElement;
+  /** Encerrar a sessão (Docker, pelo auxiliar do host): o primeiro clique arma, o segundo confirma. */
+  private stopBtn: HTMLButtonElement;
+  private stopLabel: HTMLSpanElement;
+  private stopMsg: HTMLParagraphElement;
+  private stopArmed: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  private stopping: string | null = null;
   private termLabel: HTMLElement;
   /** Por que o terminal não abre: no celular não há hover para ler o title, então o toque mostra o motivo aqui. */
   private termWhy: HTMLElement;
@@ -303,8 +310,9 @@ class AgentView {
       'div',
       { class: 'ui-status' },
       h('span', { class: 'ui-status__label' }, this.dot, this.statusText, this.statusSince),
-      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn),
+      h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn, (this.stopBtn = h('button', { class: 'ui-btn ui-stop-btn', type: 'button', hidden: true, on: { click: () => void this.clickStop() } }, (this.stopLabel = h('span', { text: tr('Encerrar') }))))),
     );
+    this.stopMsg = h('p', { class: 'ui-stop-msg', hidden: true, attrs: { role: 'status' } });
 
     // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
     this.termLabel = h('span', { class: 'ui-term-cta__label', text: tr('Abrir terminal') });
@@ -411,6 +419,7 @@ class AgentView {
       this.title,
       this.gone,
       statusRow,
+      this.stopMsg,
       this.termBtn,
       this.termWhy,
       this.alert,
@@ -552,6 +561,7 @@ class AgentView {
     setTitle(this.roomBtn, room ? tr('{0}\nClique para ver a sala', [room.path]) : '');
     setHidden(this.gone, !!live);
     this.el.classList.toggle('is-gone', !live);
+    this.renderStop(a, !!live);
 
     // Status (quem está parado num comando longo aparece como "Esperando o shell", como no escritório).
     const wait = live ? shellWaitIn(a, this.ctx.store.snapshot?.agents ?? [], now) : null;
@@ -688,6 +698,49 @@ class AgentView {
         ),
       ),
     );
+  }
+
+  private renderStop(a: AgentInfo, live: boolean): void {
+    const show = canStop(a, live, this.ctx.store.snapshot) || this.stopping === a.id;
+    setHidden(this.stopBtn, !show);
+    if (this.stopArmed && this.stopArmed.id !== a.id) this.disarmStop();
+    if (this.stopMsg.dataset.agent && this.stopMsg.dataset.agent !== a.id) setHidden(this.stopMsg, true);
+    const busy = this.stopping === a.id;
+    setAttr(this.stopBtn, 'aria-disabled', busy ? 'true' : null);
+    this.stopBtn.classList.toggle('is-armed', !!this.stopArmed);
+    setText(this.stopLabel, busy ? tr('Encerrando…') : this.stopArmed ? tr('Confirmar encerrar') : tr('Encerrar'));
+    setTitle(this.stopBtn, tr('Encerrar a sessão (a conversa fica guardada). Clique de novo para confirmar.'));
+  }
+
+  private disarmStop(): void {
+    if (this.stopArmed) clearTimeout(this.stopArmed.timer);
+    this.stopArmed = null;
+  }
+
+  private async clickStop(): Promise<void> {
+    const id = this.id;
+    if (!id || this.stopping) return;
+    if (!this.stopArmed || this.stopArmed.id !== id) {
+      this.disarmStop();
+      this.stopArmed = { id, timer: setTimeout(() => (this.disarmStop(), this.ctx.invalidate()), 4_000) };
+      this.ctx.invalidate();
+      return;
+    }
+    this.disarmStop();
+    this.stopping = id;
+    this.stopMsg.dataset.agent = id;
+    setHidden(this.stopMsg, true);
+    this.ctx.invalidate();
+    try {
+      const r = await stopAgent(id);
+      setText(this.stopMsg, r.how === 'job' ? tr('Sessão encerrada. A conversa fica guardada (claude attach abre de novo).') : tr('Sessão encerrada. A conversa fica guardada (claude --resume).'));
+    } catch (err) {
+      setText(this.stopMsg, tr('Não deu para encerrar: {0}', [(err as Error).message]));
+    } finally {
+      this.stopping = null;
+      setHidden(this.stopMsg, false);
+      this.ctx.invalidate();
+    }
   }
 
   private renderTerminalButton(live: boolean, provider = providerOf(this.last)): void {

@@ -18,6 +18,11 @@ do meio (0.**3**.0).
   ganha uma sala por MR (`MR !596`), juntando os checkouts `be_`/`fe_` e as rodadas; checkouts sem número vão para
   "Revisões". "Nova sessão" na sala abre o agente na pasta da entrega. Tarefa nova entra sozinha (os `task.json` são
   relidos a cada 30 s). O terminal interativo continua abrindo cada agente na pasta dele.
+- **Encerrar a sessão pelo painel do agente, com o Habblaud no Docker.** O botão "Encerrar" (dois cliques) pede ao
+  auxiliar do host (`npm run codex:bridge`), que acha a sessão no registro da conta pelo id: em segundo plano, roda
+  `claude stop <id>`; num terminal, manda SIGTERM ao PID só depois de conferir que ele ainda é aquele Claude Code. A
+  conversa fica guardada. Vale para sessões principais do Claude Code, com a mesma liberação do "Novo agente"
+  (`HABBLAUD_PTY=1`; pelo acesso remoto, `spawn` em `HABBLAUD_REMOTE_ALLOW`).
 
 ### Corrigido
 

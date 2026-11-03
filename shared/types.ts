@@ -366,6 +366,11 @@ export interface OfficeSnapshot {
      */
     messages?: boolean;
     /**
+     * Encerrar sessões do Claude Code pelo escritório no Docker (POST /api/stop): true com o auxiliar do host
+     * (npm run codex:bridge) no ar. Ausente/false = indisponível (no modo Node, o "Encerrar" é o do terminal interativo).
+     */
+    stop?: boolean;
+    /**
      * Terminal interativo (abrir/assumir sessões e encerrar agentes pelo escritório): só fora do Docker, com
      * node-pty e acesso local. Ausente = recurso desligado.
      */
