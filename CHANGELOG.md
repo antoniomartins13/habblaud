@@ -10,6 +10,12 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Corrigido
+
+- **Acesso pelo celular: `npm run remote:setup` no Linux com `/tmp` em tmpfs.** A chave da CA e o certificado eram
+  gerados em `/tmp` e movidos com `rename` para `~/.habblaud/remote-tls`, o que falha entre sistemas de arquivos
+  (`EXDEV: cross-device link not permitted`). Agora a pasta de trabalho fica ao lado do destino.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

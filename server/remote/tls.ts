@@ -17,7 +17,7 @@
 import { spawnSync } from 'node:child_process';
 import { randomBytes, X509Certificate } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { hostname, networkInterfaces, tmpdir } from 'node:os';
+import { hostname, networkInterfaces } from 'node:os';
 import { join } from 'node:path';
 import { tr } from '../../shared/i18n';
 
@@ -198,7 +198,8 @@ export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, d
   ensureDir(paths.base, 0o700);
   ensureDir(paths.caDir, 0o700);
   const dns = caDomains(domains);
-  const work = join(tmpdir(), `habblaud-ca-${randomBytes(6).toString('hex')}`);
+  // A pasta de trabalho fica ao lado do destino: o rename não atravessa sistemas de arquivos (EXDEV com /tmp em tmpfs).
+  const work = join(paths.caDir, `.habblaud-ca-${randomBytes(6).toString('hex')}`);
   mkdirSync(work, { mode: 0o700 });
   try {
     const cnf = join(work, 'ca.cnf');
@@ -237,7 +238,8 @@ export function ensureCa(paths: TlsPaths, label: string, run: Run = spawnSync, d
 export function issueServerCert(paths: TlsPaths, targets: CertTargets, run: Run = spawnSync): void {
   if (!existsSync(paths.caKey) || !existsSync(paths.caCert)) throw new Error(tr('a CA local não existe: rode npm run remote:setup'));
   ensureDir(paths.serverDir, 0o755);
-  const work = join(tmpdir(), `habblaud-cert-${randomBytes(6).toString('hex')}`);
+  // Ao lado do destino, pelo mesmo motivo do ensureCa (rename atômico só dentro do mesmo sistema de arquivos).
+  const work = join(paths.serverDir, `.habblaud-cert-${randomBytes(6).toString('hex')}`);
   mkdirSync(work, { mode: 0o700 });
   try {
     const key = join(work, 'server.key');
