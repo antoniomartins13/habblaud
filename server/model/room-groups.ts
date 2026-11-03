@@ -102,6 +102,14 @@ export class PipelineRoomGroups {
     return best ? this.entregaGroup(idx.worktreeEntrega.get(best)!, idx) : undefined;
   }
 
+  /** A sala onde as pendências de uma tarefa aparecem: a da entrega, a do MR ou a pasta da própria tarefa. */
+  roomForTask(task: string, entrega?: string): string {
+    const mr = /^mr-(\d+)(?:-|$)/i.exec(task);
+    if (mr) return `${GROUP_ROOM_PREFIX}mr:${mr[1]}`;
+    if (entrega) return `${GROUP_ROOM_PREFIX}entrega:${entrega}`;
+    return normalizeCwd(join(this.dir, 'tarefas', task));
+  }
+
   private entregaGroup(entrega: string, idx: Index): RoomGroup {
     const tarefas = join(this.dir, 'tarefas');
     const own = join(tarefas, entrega);

@@ -12,6 +12,7 @@
 // andamento, o hook PreToolUse e o item concluído caem na mesma atividade.
 // Tokens: o `total_token_usage` do token_count é cumulativo e o cache JÁ está dentro de input (não soma de novo).
 // Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
+import { pipelinePhaseOf, type PipelinePhase } from '../../../shared/pipeline';
 import { fileURLToPath } from 'node:url';
 import { describePrompt, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../../shared/activity';
 import type { GitHubEvent } from '../../../shared/github';
@@ -380,6 +381,10 @@ export interface CodexState {
   gitBranch?: string;
   /** Primeira instrução (título da sessão), já mascarada e cortada. */
   title?: string;
+  /** Fase pedida pelo runner do pipeline do Orca (primeiro pedido: "Execute SOMENTE a fase <fase>…"). */
+  pipelinePhase?: PipelinePhase;
+  /** Último texto de resposta desde o último pedido (para o "aguardando você"). */
+  lastReply?: string;
   tasks: TaskItem[];
   stats: AgentStats;
   /** Turno aberto (task_started sem task_complete/turn_aborted); undefined = nenhum evento de turno visto. */
@@ -607,7 +612,7 @@ class RolloutLineParser {
         if (this.paginated()) return;
         this.s.mode ??= 'legacy';
         const text = str(p.message);
-        if (text) this.push(SPECIAL.respond(text));
+        if (text) this.respond(text);
         this.progress();
         return;
       }
@@ -680,7 +685,15 @@ class RolloutLineParser {
       this.s.title = truncate(maskSecrets(text.slice(0, 1_000)), TITLE_MAX);
       this.changed();
     }
+    this.s.pipelinePhase ??= pipelinePhaseOf(text);
+    this.s.lastReply = undefined;
     this.push(describeCodexPrompt(text), { key });
+  }
+
+  /** Texto de resposta: vira atividade e fica como a última resposta do turno. */
+  private respond(text: string, opts?: { key?: string }): void {
+    this.s.lastReply = text.slice(-2_000);
+    this.push(SPECIAL.respond(text), opts);
   }
 
   // ---------------------------------------------------------------- item_completed (paginated)
@@ -697,7 +710,7 @@ class RolloutLineParser {
       case 'AgentMessage': {
         this.sawPaginated();
         const text = contentText(item.content).text.trim();
-        if (text) this.push(SPECIAL.respond(text), { key: id });
+        if (text) this.respond(text, { key: id });
         this.progress();
         return;
       }
@@ -814,7 +827,7 @@ class RolloutLineParser {
     // Code mode: a mensagem para você é a resposta (a mesma chave da entrega gravada como response_item).
     const said = userMessagingText(server, tool, input);
     if (said) {
-      this.push(SPECIAL.respond(said), { key });
+      this.respond(said, { key });
       return;
     }
     this.push(describeTool(name, input), { key, tool: name, callId: id });
@@ -835,7 +848,7 @@ class RolloutLineParser {
         // Só a resposta entregue no code mode (as outras mensagens são o contexto mandado ao modelo).
         const delivered = deliveredMessage(this.j);
         if (delivered) {
-          this.push(SPECIAL.respond(delivered.text), { key: delivered.id });
+          this.respond(delivered.text, { key: delivered.id });
           this.progress();
         }
         return;

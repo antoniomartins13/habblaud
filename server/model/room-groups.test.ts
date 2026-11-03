@@ -118,6 +118,12 @@ describe('PipelineRoomGroups', () => {
     });
   });
 
+  it('sala das pendências de uma tarefa: a da entrega, a do MR ou a pasta da tarefa', () => {
+    expect(groups.roomForTask('aj3-back', 'transparencia-ajustes-3')).toBe(`${GROUP_ROOM_PREFIX}entrega:transparencia-ajustes-3`);
+    expect(groups.roomForTask('mr-596-471-home-3954')).toBe(`${GROUP_ROOM_PREFIX}mr:596`);
+    expect(groups.roomForTask('processo-adm-3960-testes')).toBe(join(pipeline, 'tarefas', 'processo-adm-3960-testes'));
+  });
+
   it('sem tarefas/ legível, nada é agrupado (e nada lança)', () => {
     const g = new PipelineRoomGroups({ dir: join(tmp.dir, 'nao-existe', '_pipeline') });
     expect(g.group(join(tmp.dir, 'nao-existe', '_wt', 'aj3-back'))).toBeUndefined();

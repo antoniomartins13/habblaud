@@ -22,6 +22,7 @@ import { NameStore } from './model/names';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { StopService } from './spawn/stop';
+import { pendingCommand, PipelineStatus } from './pipeline/status';
 import { PipelineRoomGroups } from './model/room-groups';
 import { createPtyRoutes } from './http/pty';
 import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
@@ -119,12 +120,14 @@ const accounts = new AccountsService({
 });
 const roomGroups = config.pipelineDir ? new PipelineRoomGroups({ dir: config.pipelineDir, readDir: config.pipelineReadDir }) : undefined;
 if (roomGroups) log.info(tr('Salas por funcionalidade: pipeline em {0}.', [config.pipelineDir!]));
+const pipelineStatus = roomGroups ? new PipelineStatus() : undefined;
 const office = new Office({
   names,
   roomAlias: (path) => roomAliases.get(path),
   roomGroup: roomGroups ? (cwd) => roomGroups.group(cwd) : undefined,
   // Criado mais abaixo (depende da liberação do terminal): só é chamado depois do boot.
   stop: () => stop?.available() === true,
+  pendingRoom: roomGroups ? (p) => roomGroups.roomForTask(p.task, p.entrega) : undefined,
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
@@ -348,6 +351,15 @@ messages?.start();
 stats.start();
 updates.start();
 worldUplink?.start();
+// Auxiliar parado: a foto do runner envelhece e as pendências saem do escritório (ninguém sabe mais o estado).
+let pipelineWasFresh = false;
+if (pipelineStatus) {
+  setInterval(() => {
+    const fresh = pipelineStatus.fresh();
+    if (pipelineWasFresh && !fresh) office.setPipelinePending([]);
+    pipelineWasFresh = fresh;
+  }, 30_000).unref();
+}
 const ticker = setInterval(() => {
   try {
     office.tick();
@@ -379,6 +391,11 @@ const api = createApiHandler({
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
   stop,
+  pipelineStatus: pipelineStatus
+    ? (raw) => {
+        if (pipelineStatus.set(raw)) office.setPipelinePending(pipelineStatus.list().map((p) => ({ ...p, command: pendingCommand(p) })));
+      }
+    : undefined,
   attachments,
   dictation,
   deliveries,

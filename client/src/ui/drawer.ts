@@ -1,6 +1,6 @@
 // Gaveta de detalhes (direita): agente ou sala selecionados. Agente do Codex: selo "Codex", textos dele (onde
 // responder, o terminal, a aprovação no lugar do modo de permissão, sem custo) e a dica dos hooks do Codex.
-import type { Activity, AgentInfo, FeedItem, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
+import type { Activity, AgentInfo, FeedItem, PipelinePending, RoomInfo, ShellJob, TaskItem } from '../../../shared/types';
 import { roomTheme } from '../art';
 import { createAvatarPlaceholder, updateAvatar } from './avatar';
 import { CharacterEditor } from './character-editor';
@@ -46,6 +46,9 @@ import { ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
 import { canStop, stopAgent } from './stop';
+import { pipelineTag } from '../../../shared/pipeline';
+import { agentAsks } from './model';
+import { copyButton, pendingItems } from './pending';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
 import type { PtyControl } from './pty';
@@ -75,20 +78,6 @@ function section(title: string, ...children: (Node | null)[]): { el: HTMLElement
   return { el, title: t, extra };
 }
 
-function copyButton(getText: () => string, label: string): HTMLButtonElement {
-  const b = iconButton(ICONS.copy, label, async () => {
-    const ok = await copyText(getText());
-    b.classList.toggle('is-done', ok);
-    b.innerHTML = ok ? ICONS.check : ICONS.copy;
-    setTitle(b, ok ? tr('Copiado!') : tr('Não foi possível copiar'));
-    setTimeout(() => {
-      b.classList.remove('is-done');
-      b.innerHTML = ICONS.copy;
-      setTitle(b, label);
-    }, 1400);
-  }, 'ui-icon-btn--sm');
-  return b;
-}
 
 const TASK_MARK: Record<TaskItem['status'], string> = { completed: '✓', in_progress: '◐', pending: '○' };
 const TASK_STATE: Record<TaskItem['status'], string> = { completed: tr('concluída'), in_progress: tr('em andamento'), pending: 'pendente' };
@@ -220,6 +209,9 @@ class AgentView {
   private stopBtn: HTMLButtonElement;
   private stopLabel: HTMLSpanElement;
   private stopMsg: HTMLParagraphElement;
+  /** O agente terminou o turno pedindo algo a você (AgentInfo.asks). */
+  private asksBox: HTMLDivElement;
+  private asksText: HTMLParagraphElement;
   private stopArmed: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   private stopping: string | null = null;
   private termLabel: HTMLElement;
@@ -313,6 +305,8 @@ class AgentView {
       h('span', { class: 'ui-status__actions' }, this.followBtn, centerBtn, (this.stopBtn = h('button', { class: 'ui-btn ui-stop-btn', type: 'button', hidden: true, on: { click: () => void this.clickStop() } }, (this.stopLabel = h('span', { text: tr('Encerrar') }))))),
     );
     this.stopMsg = h('p', { class: 'ui-stop-msg', hidden: true, attrs: { role: 'status' } });
+    this.asksText = h('p', { class: 'ui-asks__text' });
+    this.asksBox = h('div', { class: 'ui-asks', hidden: true, attrs: { role: 'status' } }, h('strong', { class: 'ui-asks__title', text: tr('✋ Aguardando você') }), this.asksText);
 
     // Terminal: a conversa da sessão como o Claude Code mostra, ao vivo (só com acesso local).
     this.termLabel = h('span', { class: 'ui-term-cta__label', text: tr('Abrir terminal') });
@@ -422,6 +416,7 @@ class AgentView {
       this.stopMsg,
       this.termBtn,
       this.termWhy,
+      this.asksBox,
       this.alert,
       this.perm.el,
       this.shellBox,
@@ -545,7 +540,8 @@ class AgentView {
     setStyleVar(this.avatar, '--acc', account?.color ?? '#8b98b3');
     setText(this.name, a.name);
     this.character.render(a, !!live);
-    setText(this.role, roleLabel(a));
+    const tag = pipelineTag(a);
+    setText(this.role, tag ? `${roleLabel(a)} · ${tag.label}` : roleLabel(a));
     setVariant(this.role, 'ui-role--', a.kind);
     setText(this.title, a.title ?? '');
     setHidden(this.title, !a.title);
@@ -576,6 +572,11 @@ class AgentView {
     setAttr(this.followBtn, 'aria-pressed', String(following));
     this.followBtn.classList.toggle('is-on', following);
     this.renderTerminalButton(!!live);
+
+    // Aguardando você (o turno terminou pedindo algo): o trecho da resposta que pede.
+    const asks = live ? agentAsks(a) : undefined;
+    setHidden(this.asksBox, !asks);
+    setText(this.asksText, asks ?? '');
 
     // Alerta.
     const waiting = a.status === 'waiting' && !!live;
@@ -870,6 +871,10 @@ class RoomView {
   private feed: KeyedList<FeedItem>;
   private feedSec: ReturnType<typeof section>;
   private newBtn: HTMLButtonElement;
+  /** O que o runner do pipeline espera de você nas tarefas desta sala (RoomInfo.pending). */
+  private pendingBox: HTMLDivElement;
+  private pendingList: HTMLUListElement;
+  private pendingKey = '';
   private newMsg: HTMLElement;
 
   constructor(
@@ -927,6 +932,9 @@ class RoomView {
     this.feedSec = section(tr('Atividade recente'), feedList);
     this.feed = new KeyedList<FeedItem>(feedList, { key: (f) => f.id, create: createTimelineItem, update: (li, f) => updateTimelineItem(li, f.activity, ctx.now(), f.agentName) });
 
+    this.pendingList = h('ul', { class: 'ui-pending__list' });
+    this.pendingBox = h('div', { class: 'ui-pending', hidden: true, attrs: { role: 'status' } }, h('strong', { class: 'ui-pending__title', text: tr('✋ O runner espera você') }), this.pendingList);
+
     this.el = h(
       'div',
       { class: 'ui-drawer__view ui-room-view' },
@@ -939,6 +947,7 @@ class RoomView {
       this.gone,
       h('div', { class: 'ui-status' }, accsEl, h('span', { class: 'ui-status__actions' }, this.newBtn, centerBtn)),
       this.newMsg,
+      this.pendingBox,
       this.agentsSec.el,
       this.tasksSec.el,
       this.feedSec.el,
@@ -947,6 +956,15 @@ class RoomView {
 
   get roomId(): string {
     return this.id;
+  }
+
+  /** Pendências do runner: o que é, de qual tarefa e a linha que resolve (para mandar na sua sessão interativa). */
+  private renderPending(items: readonly PipelinePending[]): void {
+    const key = JSON.stringify(items);
+    setHidden(this.pendingBox, !items.length);
+    if (key === this.pendingKey) return;
+    this.pendingKey = key;
+    this.pendingList.replaceChildren(...pendingItems(items));
   }
 
   /** Sessão nova na pasta da sala, na conta de quem estiver nela (ou na padrão). */
@@ -987,6 +1005,7 @@ class RoomView {
     setHidden(this.gone, !!live);
     setHidden(this.renameBtn, !live || !canRenameRoom(this.ctx, r.id));
     setHidden(this.newBtn, !this.pty.enabled);
+    this.renderPending(live?.pending ?? []);
 
     const snap = this.ctx.store.snapshot;
     const agents = (snap?.agents ?? []).filter((a) => a.roomId === r.id);

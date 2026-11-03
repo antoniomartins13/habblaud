@@ -12,11 +12,13 @@ import { officeIsEmpty } from './overlays';
 import { createAgentRow, updateAgentRow } from './rows';
 import { createAccountChip, createProgress, updateAccountChip, updateProgress } from './widgets';
 import { tr } from '../../../shared/i18n';
+import { pendingItems } from './pending';
 
 interface RoomRefs {
   head: HTMLButtonElement;
   name: HTMLElement;
   count: HTMLElement;
+  pending: HTMLElement;
   path: HTMLElement;
   accs: KeyedList<AccountInfo | string>;
   tasks: HTMLElement;
@@ -45,6 +47,9 @@ export class Sidebar implements UiComponent {
   private scroller: HTMLElement;
   private rooms: KeyedList<RoomGroup>;
   private roomRefs = new WeakMap<HTMLElement, RoomRefs>();
+  private runnerBox: HTMLDivElement;
+  private runnerList: HTMLUListElement;
+  private runnerKey = '';
   private nodeRefs = new WeakMap<HTMLElement, NodeRefs>();
   /** Agentes de cada sala na ordem mostrada (para arrastar e soltar). */
   private shown = new Map<string, AgentNode[]>();
@@ -128,11 +133,14 @@ export class Sidebar implements UiComponent {
     this.empty = h('div', { class: 'ui-side__empty', hidden: true }, this.emptyText, this.clearBtn);
     this.scroller.append(this.empty);
 
+    // Pendências do runner sem sala aberta (ninguém trabalhando na funcionalidade): ficam no topo da lista.
+    this.runnerList = h('ul', { class: 'ui-pending__list' });
+    this.runnerBox = h('div', { class: 'ui-pending ui-side__pending', hidden: true, attrs: { role: 'status' } }, h('strong', { class: 'ui-pending__title', text: tr('✋ O runner espera você') }), this.runnerList);
     const close = iconButton(ICONS.close, tr('Fechar painel lateral'), () => ctx.togglePanel('sidebar', false), 'ui-side__close');
     this.el = h(
       'aside',
       { class: 'ui-panel ui-sidebar', attrs: { 'aria-label': tr('Salas e agentes'), id: 'ui-sidebar' } },
-      h('div', { class: 'ui-side__head' }, h('div', { class: 'ui-side__title' }, h('h2', { text: tr('Escritório') }), close), search, this.filters),
+      h('div', { class: 'ui-side__head' }, h('div', { class: 'ui-side__title' }, h('h2', { text: tr('Escritório') }), close), search, this.filters, this.runnerBox),
       this.scroller,
     );
   }
@@ -147,6 +155,13 @@ export class Sidebar implements UiComponent {
     const accounts = snap?.accounts ?? [];
     const hidden = new Set(this.ctx.prefs.hiddenAccounts);
     this.filterList.sync(accounts.length > 1 ? accounts : []);
+    const orphan = snap?.meta.pipeline ?? [];
+    setHidden(this.runnerBox, !orphan.length);
+    const runnerKey = JSON.stringify(orphan);
+    if (runnerKey !== this.runnerKey) {
+      this.runnerKey = runnerKey;
+      this.runnerList.replaceChildren(...pendingItems(orphan));
+    }
     setHidden(this.filters, accounts.length <= 1);
 
     // Ordem das salas escolhida pelo usuário (arrastando o cabeçalho da sala).
@@ -198,6 +213,7 @@ export class Sidebar implements UiComponent {
   private createRoom(g: RoomGroup): HTMLElement {
     const name = h('span', { class: 'ui-room__name' });
     const count = h('span', { class: 'ui-room__count' });
+    const pending = h('span', { class: 'ui-room__pending', hidden: true });
     const accsEl = h('span', { class: 'ui-room__accs' });
     const path = h('span', { class: 'ui-room__path' });
     const tasksBar = createProgress(tr('Progresso das tarefas da sala'));
@@ -208,7 +224,7 @@ export class Sidebar implements UiComponent {
       'button',
       { class: 'ui-room__head', type: 'button' },
       swatch,
-      h('span', { class: 'ui-room__line' }, name, count, accsEl),
+      h('span', { class: 'ui-room__line' }, name, count, pending, accsEl),
       path,
       tasks,
     );
@@ -239,7 +255,7 @@ export class Sidebar implements UiComponent {
       create: (n) => this.createNode(n),
       update: (el, n) => this.updateNode(el, n),
     });
-    this.roomRefs.set(section, { head, name, count, path, accs, tasks, tasksBar, tasksText, nodes });
+    this.roomRefs.set(section, { head, name, count, pending, path, accs, tasks, tasksBar, tasksText, nodes });
     return section;
   }
 
@@ -250,6 +266,11 @@ export class Sidebar implements UiComponent {
     const present = g.agents.filter((a) => a.status !== 'offline').length;
     setText(r.count, String(present));
     setTitle(r.count, plural(present, tr('agente'), tr('agentes')));
+    // O runner do pipeline espera você nesta sala (gate, recuperação, MR para abrir).
+    const waiting = g.room.pending?.length ?? 0;
+    setText(r.pending, waiting ? `✋ ${waiting}` : '');
+    setTitle(r.pending, waiting ? tr('O runner espera você: {0}', [g.room.pending!.map((x) => x.task).join(', ')]) : '');
+    setHidden(r.pending, !waiting);
     setText(r.path, shortPath(g.room.path));
     setTitle(r.head, tr('{0}\nClique para ver a sala', [g.room.path]));
     setAttr(r.head, 'aria-label', tr('Sala {0}, {1}', [g.room.name, plural(present, tr('agente'), tr('agentes'))]));

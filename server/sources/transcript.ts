@@ -2,6 +2,7 @@
 // Cada linha atualiza um TranscriptState (títulos, tarefas, estatísticas...) e pode gerar
 // atividades (o que o personagem está fazendo) e sinais (ciclo de vida de subagentes).
 // Tipos de linha desconhecidos são ignorados; uma linha inválida nunca derruba a leitura.
+import { pipelinePhaseOf, type PipelinePhase } from '../../shared/pipeline';
 import { createReadStream } from 'node:fs';
 import type { Activity, AgentStats, TaskItem, TaskStatus } from '../../shared/types';
 import { describePrompt, describeShellJob, describeTool, maskSecrets, SPECIAL, truncate, type ActivityDescription } from '../../shared/activity';
@@ -112,6 +113,10 @@ export interface TranscriptState {
   agentName?: string;
   aiTitle?: string;
   lastPrompt?: string;
+  /** Fase pedida pelo runner do pipeline do Orca (primeiro pedido: "Execute SOMENTE a fase <fase>…"). */
+  pipelinePhase?: PipelinePhase;
+  /** Último texto de resposta desde o último pedido (para o "aguardando você"). */
+  lastReply?: string;
   tasks: TaskItem[];
   /** TaskCreate aguardando o id real (tool_use id -> id provisório). */
   pendingTaskCreates: Map<string, string>;
@@ -442,7 +447,10 @@ class LineParser {
         this.push(SPECIAL.think(), { suffix, msgId });
       } else if (b.type === 'text') {
         const text = str(b.text);
-        if (text) this.push(SPECIAL.respond(text), { suffix, msgId });
+        if (text) {
+          s.lastReply = text.slice(-2_000);
+          this.push(SPECIAL.respond(text), { suffix, msgId });
+        }
       } else if (b.type === 'tool_use') {
         this.toolUse(b, suffix, msgId);
       }
@@ -579,6 +587,8 @@ class LineParser {
       prompt = `${cmd} ${args}`.trim();
     }
     this.s.ended = false;
+    this.s.lastReply = undefined;
+    this.s.pipelinePhase ??= pipelinePhaseOf(prompt);
     this.meta('lastPrompt', truncate(maskSecrets(prompt.slice(0, 1_000)), 200));
     this.push(describePrompt(prompt));
   }
@@ -750,6 +760,8 @@ const PREFIX_MARKERS = [
   // Shells em segundo plano: lançamento e término (para saber quais ainda rodam).
   '"backgroundTaskId"',
   '<task-notification>',
+  // Primeiro pedido do runner do pipeline (a fase da sessão).
+  'Execute SOMENTE a fase',
 ];
 
 function prefixRelevant(state: TranscriptState, line: string): boolean {
@@ -828,6 +840,7 @@ export function mergePrefix(state: TranscriptState, prefix: TranscriptState): vo
   state.agentName ??= prefix.agentName;
   state.aiTitle ??= prefix.aiTitle;
   state.lastPrompt ??= prefix.lastPrompt;
+  state.pipelinePhase ??= prefix.pipelinePhase;
   state.model ??= prefix.model;
   state.gitBranch ??= prefix.gitBranch;
   state.permissionMode ??= prefix.permissionMode;

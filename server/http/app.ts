@@ -72,6 +72,8 @@ export interface ApiDeps {
   spawn?: SpawnService;
   /** Encerrar sessões pelo escritório com o Habblaud no Docker (spawn/stop.ts); ausente = desligado. */
   stop?: StopService;
+  /** Foto do runner do pipeline enviada pelo auxiliar do host (POST /api/host/pipeline); ausente = desligado. */
+  pipelineStatus?: (raw: unknown) => void;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
@@ -577,6 +579,22 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         if (info) sendJson(res, 200, info);
         else sendJson(res, 404, { error: tr('pedido desconhecido') });
       } else methodNotAllowed(res, path === '/api/stop' ? 'GET, POST' : 'GET');
+      return true;
+    }
+    if (path === '/api/host/pipeline') {
+      // Só o auxiliar do host, pela porta local (como /api/host/spawn): o que o runner espera do usuário.
+      if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!deps.pipelineStatus) sendJson(res, 403, { error: tr('salas por funcionalidade desligadas (HABBLAUD_PIPELINE_DIR)') });
+      else if (!trusted(req) || (!deps.inDocker && !isLoopbackAddress(req.socket.remoteAddress))) {
+        sendJson(res, 403, { error: denied(req, tr('só o auxiliar do próprio computador')) });
+      } else {
+        readJson(req)
+          .then((body) => {
+            deps.pipelineStatus!(body);
+            sendJson(res, 200, { ok: true });
+          })
+          .catch((err) => fail(res, err));
+      }
       return true;
     }
     if (path === '/api/host/stop/poll' || path === '/api/host/stop/ack') {

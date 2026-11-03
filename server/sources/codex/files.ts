@@ -4,7 +4,7 @@
 // auth.json, config.toml, history.jsonl, shell_snapshots/, logs e os SQLite nunca são abertos.
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createCodexState, metaFromLine, parseRolloutLine, type RolloutMeta } from './rollout';
+import { createCodexState, metaFromLine, parseRolloutLine, type CodexState, type RolloutMeta } from './rollout';
 
 /** rollout-<AAAA-MM-DDThh-mm-ss>-<thread>[_<rollout>].jsonl[.zst] (o `_<rollout>` é de thread revertido). */
 const ROLLOUT_FILE = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_[0-9a-f-]{36})?\.jsonl(\.zst)?$/i;
@@ -206,6 +206,8 @@ export interface RolloutHead {
   meta?: RolloutMeta;
   /** Primeira instrução (já mascarada e cortada). */
   title?: string;
+  /** Fase do runner do pipeline, se a primeira instrução for dele. */
+  pipelinePhase?: CodexState['pipelinePhase'];
   firstAt?: number;
 }
 
@@ -261,6 +263,7 @@ export function readRolloutHead(path: string): RolloutHead {
       if (state.title !== undefined) break;
     }
     if (state.title) head.title = state.title;
+    if (state.pipelinePhase) head.pipelinePhase = state.pipelinePhase;
     if (head.firstAt === undefined && state.firstAt !== undefined) head.firstAt = state.firstAt;
     return head;
   } catch {

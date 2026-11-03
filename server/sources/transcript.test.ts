@@ -469,3 +469,27 @@ describe('janela final + prefixo em segundo plano', () => {
     expect(applyTaskOp([], { op: 'update', id: '9', status: 'completed' })).toEqual([]);
   });
 });
+
+describe('pipeline do Orca no transcript', () => {
+  it('a fase vem do primeiro pedido do runner e a última resposta fica até o próximo pedido', () => {
+    const state = createTranscriptState();
+    feed(state, [
+      L.prompt('Execute SOMENTE a fase review desta tarefa. Nao dispare outros agentes, nao publique.'),
+      L.assistant([L.text('Revisei o diff.')], { stop: null }),
+      L.assistant([L.text('Veredito: approved. Quer que eu registre algo mais?')], { stop: 'end_turn' }),
+    ]);
+    expect(state.pipelinePhase).toBe('review');
+    expect(state.lastReply).toBe('Veredito: approved. Quer que eu registre algo mais?');
+    expect(state.ended).toBe(true);
+    // Um pedido novo (inclusive outro pedido do runner) não troca a fase e apaga a resposta anterior.
+    feed(state, [L.prompt('Execute SOMENTE a fase dev desta tarefa.')]);
+    expect(state.pipelinePhase).toBe('review');
+    expect(state.lastReply).toBeUndefined();
+  });
+
+  it('sessão que não é do runner fica sem fase', () => {
+    const state = createTranscriptState();
+    feed(state, [L.prompt('Retomar a entrega transparencia-ajustes-3 conforme RETOMAR.md')]);
+    expect(state.pipelinePhase).toBeUndefined();
+  });
+});

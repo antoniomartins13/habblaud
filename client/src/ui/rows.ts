@@ -3,7 +3,8 @@ import type { AccountInfo, AgentInfo } from '../../../shared/types';
 import { createAvatar, updateAvatar, type AvatarSize } from './avatar';
 import { h, setAttr, setHidden, setStyleVar, setText, setTitle, setVariant } from './dom';
 import { formatDuration } from './format';
-import { activityFallback, shellLine, shellWaitIn, statusLabel } from './model';
+import { activityFallback, agentAsks, shellLine, shellWaitIn, statusLabel } from './model';
+import { pipelineTag } from '../../../shared/pipeline';
 import {
   createAccountChip,
   createActivityLine,
@@ -29,6 +30,8 @@ interface RowRefs {
   /** Há quanto tempo está ocioso (no lugar do "Principal"). */
   since: HTMLElement;
   size: AvatarSize;
+  phase: HTMLElement;
+  asks: HTMLElement;
 }
 
 const refs = new WeakMap<HTMLElement, RowRefs>();
@@ -42,16 +45,18 @@ export function createAgentRow(agent: AgentInfo, onPick: (id: string) => void, s
   const activity = createActivityLine();
   const task = h('span', { class: 'ui-agent__task', hidden: true });
   const since = h('span', { class: 'ui-agent__since', hidden: true });
+  const phase = h('span', { class: 'ui-agent__phase', hidden: true });
+  const asks = h('span', { class: 'ui-agent__asks', hidden: true });
   const row = h(
     'button',
     { class: 'ui-agent', type: 'button' },
     avatar,
-    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, chip, since, role), task, activity),
+    h('span', { class: 'ui-agent__main' }, h('span', { class: 'ui-agent__top' }, name, phase, chip, since, role), task, asks, activity),
     dot,
   );
   row.dataset.id = agent.id;
   row.addEventListener('click', () => onPick(row.dataset.id!));
-  refs.set(row, { avatar, name, chip, role, dot, activity, task, since, size });
+  refs.set(row, { avatar, name, chip, role, dot, activity, task, since, size, phase, asks });
   return row;
 }
 
@@ -75,6 +80,15 @@ export function updateAgentRow(
   setText(r.name, agent.name);
   updateAccountChip(r.chip, account, agent.account, agent.provider);
   updateRoleBadge(r.role, agent);
+  const tag = pipelineTag(agent);
+  setText(r.phase, tag?.label ?? '');
+  setHidden(r.phase, !tag);
+  setVariant(r.phase, 'ui-agent__phase--', tag?.key ?? '');
+  const asks = agentAsks(agent);
+  setText(r.asks, asks ? `✋ ${asks}` : '');
+  setTitle(r.asks, asks ? tr('Aguardando você: {0}', [asks]) : '');
+  setHidden(r.asks, !asks);
+  row.classList.toggle('is-asks', !!asks);
   const title = agent.title?.trim() ?? '';
   setText(r.task, title);
   setTitle(r.task, title);

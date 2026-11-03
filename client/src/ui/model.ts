@@ -73,7 +73,7 @@ export function computeCounters(snap: Pick<OfficeSnapshot, 'rooms' | 'agents'> |
     const wait = shellWaitIn(a, snap.agents, now);
     if (wait) c.shells += Math.max(1, wait.jobs.length);
     else if (a.status === 'working') c.working++;
-    if (a.status === 'waiting') c.waiting++;
+    if (a.status === 'waiting' || agentAsks(a)) c.waiting++;
     if (a.kind === 'sub' && a.status !== 'done') c.subagents++;
   }
   return c;
@@ -81,7 +81,7 @@ export function computeCounters(snap: Pick<OfficeSnapshot, 'rooms' | 'agents'> |
 
 /** Agentes esperando o usuário, do que espera há mais tempo para o mais recente. */
 export function waitingAgents(agents: readonly AgentInfo[]): AgentInfo[] {
-  return agents.filter((a) => a.status === 'waiting').sort((a, b) => a.statusSince - b.statusSince);
+  return agents.filter((a) => a.status === 'waiting' || agentAsks(a)).sort((a, b) => a.statusSince - b.statusSince);
 }
 
 // ---------------------------------------------------------------- esperando o shell
@@ -436,4 +436,12 @@ export function mergeHistory<T extends { id: string; at: number }>(history: read
   for (const a of history) if (keep(a)) seen.set(a.id, a);
   for (const a of recent) if (keep(a)) seen.set(a.id, a);
   return [...seen.values()].sort((a, b) => a.at - b.at).slice(-limit);
+}
+
+/**
+ * O agente terminou o turno pedindo algo a você (AgentInfo.asks): o trecho, só com ele ocioso ou concluído (trabalhando
+ * de novo, já não espera).
+ */
+export function agentAsks(a: AgentInfo): string | undefined {
+  return a.asks && a.kind === 'main' && (a.status === 'idle' || a.status === 'done') ? a.asks : undefined;
 }

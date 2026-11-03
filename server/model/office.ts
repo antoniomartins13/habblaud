@@ -32,6 +32,7 @@ import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
 import type { RoomGroup } from './room-groups';
+import type { PipelinePending } from '../../shared/types';
 import { tr } from '../../shared/i18n';
 import type { WorldMeta } from '../../shared/world/api';
 
@@ -61,6 +62,8 @@ export interface OfficeDeps {
   roomGroup?: (cwd: string) => RoomGroup | undefined;
   /** Encerrar pelo escritório (spawn/stop.ts): disponível agora? Ausente = recurso desligado. */
   stop?: () => boolean;
+  /** Sala onde aparece cada pendência do runner (PipelineRoomGroups.roomForTask). */
+  pendingRoom?: (p: PipelinePending) => string;
   version: string;
   /** Build do cliente servido (ver OfficeSnapshot.meta.build); ausente no modo dev e nos testes. */
   build?: () => string | undefined;
@@ -96,6 +99,10 @@ export interface TranscriptSummary {
   model?: string;
   gitBranch?: string;
   permissionMode?: string;
+  /** Fase do runner do pipeline (AgentInfo.pipelinePhase). */
+  pipelinePhase?: AgentInfo['pipelinePhase'];
+  /** O turno terminou pedindo algo ao usuário (AgentInfo.asks). */
+  asks?: string;
   /** Primeiro evento conhecido (subagentes: o início real, depois de ler o começo do arquivo). */
   firstAt?: number;
   lastAt?: number;
@@ -204,6 +211,9 @@ const byStart = (a: ShellJob, b: ShellJob) => a.startedAt - b.startedAt || a.id.
 export class Office {
   private agents = new Map<string, AgentRecord>();
   private rooms = new Map<string, { path: string; createdAt: number; name?: string }>();
+  /** O que o runner do pipeline espera do usuário (setPipelinePending). */
+  private pending: PipelinePending[] = [];
+  private pendingSeen = false;
   private slots = new SlotAllocator(SLOT_COOLDOWN_MS);
   private roomNames = new Map<string, string>();
   private feed: FeedItem[] = [];
@@ -690,6 +700,17 @@ export class Office {
     set('model', t.model);
     set('gitBranch', t.gitBranch);
     set('permissionMode', t.permissionMode);
+    set('pipelinePhase', t.pipelinePhase);
+    if (info.kind === 'main') {
+      const before = info.asks;
+      set('asks', t.asks);
+      // Aviso só quando o pedido aparece (e não na releitura do boot): entra no feed e nas notificações do navegador.
+      if (t.asks && t.asks !== before) {
+        this.notice('wait', id, 'alert', tr('✋ {0} aguarda você em {1}: {2}', [info.name, this.roomName(info.roomId), t.asks]), info.roomId, {
+          dedupeKey: `${id}|asks|${t.asks}`,
+        });
+      }
+    }
     if (info.kind === 'sub' && t.firstAt !== undefined && t.firstAt < info.startedAt) {
       info.startedAt = t.firstAt;
       changed = true;
@@ -987,6 +1008,21 @@ export class Office {
       const effect = this.effects.get(room.id, now) ?? this.demoSnap?.rooms.find((r) => r.id === room.id)?.effect;
       if (effect) room.effect = { ...effect };
     }
+    // Pendências do runner na sala da funcionalidade (a sala só existe com alguém trabalhando nela).
+    let orphanPending: PipelinePending[] = [];
+    if (this.pending.length && this.deps.pendingRoom) {
+      const byRoom = new Map<string, PipelinePending[]>();
+      for (const p of this.pending) {
+        const id = this.deps.pendingRoom(p);
+        byRoom.set(id, [...(byRoom.get(id) ?? []), { ...p }]);
+      }
+      for (const room of rooms) {
+        const list = byRoom.get(room.id);
+        if (list) room.pending = list;
+        byRoom.delete(room.id);
+      }
+      orphanPending = [...byRoom.values()].flat();
+    }
     const perms = this.deps.permissions?.();
     const real = [...this.agents.values()].map((r) => applyPermission(cloneAgent(r.info), perms?.get(r.info.id)));
     const reach = this.deps.messages?.();
@@ -1018,6 +1054,7 @@ export class Office {
         terminal: this.deps.terminal === true,
         messages: this.deps.messages !== undefined,
         ...(this.deps.stop ? { stop: this.deps.stop() } : {}),
+        ...(orphanPending.length ? { pipeline: orphanPending } : {}),
         ...(ptys ? { pty: ptys.status } : {}),
         updates: this.deps.updates?.(),
         ...(this.deps.world ? { world: this.deps.world() } : {}),
@@ -1071,6 +1108,34 @@ export class Office {
       const alias = this.deps.roomAlias?.(path);
       if (alias) this.roomNames.set(id, alias);
     }
+  }
+
+  /**
+   * Foto nova do que o runner espera do usuário. Pendência que aparece vira aviso (feed e notificação), menos na
+   * primeira foto (o que já esperava antes de o Habblaud subir não é novidade).
+   */
+  setPipelinePending(items: PipelinePending[]): void {
+    const key = (p: PipelinePending) => `${p.task}|${p.kind}|${p.hash ?? ''}`;
+    const before = new Set(this.pending.map(key));
+    const first = !this.pendingSeen;
+    this.pendingSeen = true;
+    this.pending = items.map((p) => ({ ...p }));
+    if (!first) {
+      for (const p of items) {
+        if (before.has(key(p))) continue;
+        const room = this.deps.pendingRoom?.(p);
+        const what =
+          p.kind === 'cp1'
+            ? tr('{0} espera o seu CP1', [p.entrega ?? p.task])
+            : p.kind === 'prototype'
+              ? tr('{0} espera a aprovação do protótipo', [p.entrega ?? p.task])
+              : p.kind === 'blocked'
+                ? tr('{0} está bloqueada: precisa de RECUPERAR', [p.task])
+                : tr('{0} está pronta para o MR em draft', [p.task]);
+        this.notice('wait', `pipeline:${p.task}`, p.kind === 'draft' ? 'info' : 'alert', `✋ ${what}`, room, { dedupeKey: `pipeline|${key(p)}` });
+      }
+    }
+    this.markDirty();
   }
 
   /** Um nome de sala mudou (renomear): recalcula e transmite. */

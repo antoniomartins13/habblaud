@@ -24,6 +24,8 @@
 // Status: aplicado por bordas (início/fim de turno no rollout, eventos de hook), a informação mais nova vence; um
 // rollout relido nunca sobrescreve o 'waiting' de um PermissionRequest mais novo. Boot curto e síncrono (só a janela
 // final de rollouts grandes; o começo é lido depois, em segundo plano), com endBoot num `finally`.
+import { maskSecrets } from '../../../shared/activity';
+import { asksYou } from '../../../shared/pipeline';
 import { createReadStream, readdirSync, realpathSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { basename, join, resolve, sep } from 'node:path';
 import type { AccountUsage, Activity, AgentStatus, SourceInfo } from '../../../shared/types';
@@ -568,6 +570,7 @@ export class CodexSource implements AgentSource, CodexLive {
     t.rolloutPath = path;
     t.state = createCodexState(head.meta);
     if (head.title) t.state.title = head.title;
+    if (head.pipelinePhase) t.state.pipelinePhase ??= head.pipelinePhase;
     t.backlog = [];
     for (let i = 0; i < 64; i++) {
       const r = tail.read();
@@ -694,6 +697,10 @@ export class CodexSource implements AgentSource, CodexLive {
     if (branch) summary.gitBranch = branch;
     if (s.firstAt !== undefined) summary.firstAt = s.firstAt;
     if (s.lastAt !== undefined) summary.lastAt = s.lastAt;
+    if (s.pipelinePhase) summary.pipelinePhase = s.pipelinePhase;
+    // "Aguardando você": só com o turno encerrado.
+    const asks = s.turnOpen === false ? asksYou(s.lastReply) : undefined;
+    if (asks) summary.asks = maskSecrets(asks);
     this.opts.office.applyTranscript(t.key, summary);
   }
 
@@ -708,6 +715,7 @@ export class CodexSource implements AgentSource, CodexLive {
         state.stats.toolCalls += prefix.state.stats.toolCalls;
         state.stats.subagents += prefix.state.stats.subagents;
         state.title ??= prefix.state.title;
+        state.pipelinePhase ??= prefix.state.pipelinePhase;
         state.model ??= prefix.state.model;
         if (!state.tasks.length && prefix.state.tasks.length) state.tasks = prefix.state.tasks;
         if (prefix.state.firstAt !== undefined && (state.firstAt === undefined || prefix.state.firstAt < state.firstAt)) state.firstAt = prefix.state.firstAt;

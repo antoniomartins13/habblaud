@@ -6,6 +6,8 @@
 // Desempenho: o polling de ~1 s toca só nos registros de sessão, nos transcripts das sessões
 // abertas e nas pastas subagents/ dessas sessões (nunca no acervo de transcripts antigos).
 // fs.watch é só um acelerador (no Docker com bind mount do macOS os eventos podem não chegar).
+import { asksYou } from '../../shared/pipeline';
+import { maskSecrets } from '../../shared/activity';
 import { existsSync, readdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 import { SPECIAL } from '../../shared/activity';
@@ -529,6 +531,10 @@ export class ClaudeWatcher implements AgentSource {
     if (s.model) summary.model = s.model;
     if (s.gitBranch) summary.gitBranch = s.gitBranch;
     if (s.permissionMode) summary.permissionMode = s.permissionMode;
+    if (s.pipelinePhase) summary.pipelinePhase = s.pipelinePhase;
+    // "Aguardando você": só com o turno encerrado (no meio do turno, uma pergunta é retórica ou ainda vai ser respondida).
+    const asks = s.ended && !s.pendingTools.size ? asksYou(s.lastReply) : undefined;
+    if (asks) summary.asks = maskSecrets(asks);
     if (s.lastAt !== undefined) summary.lastAt = s.lastAt;
     this.opts.office.applyTranscript(t.key, summary);
   }

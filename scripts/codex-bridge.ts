@@ -18,7 +18,7 @@
 // Ctrl+C para parar.
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isClaudeDir } from '../server/accounts/detect';
 import { createCodexQueueRunner, findCodexBin, THREAD_ID, type CodexQueueResult, type CodexQueueRunner } from '../server/messages/codex';
@@ -31,6 +31,8 @@ import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/fi
 import { discoverClaudeDirs } from '../server/accounts/detect';
 import { HOST_WAIT_MS } from '../server/host-wait';
 import { stopSession, type HostStopDeps, type StopResult } from '../server/spawn/stop';
+import { createGateReader, readPipelinePending } from '../server/pipeline/status';
+import { readEnvValue } from '../server/remote/envfile';
 import { readFileSync } from 'node:fs';
 
 export const DEFAULT_PORT = 4747;
@@ -285,6 +287,34 @@ export async function stopRound(
   return 'ok';
 }
 
+/** De quanto em quanto tempo o estado do runner do pipeline vai para o Habblaud. */
+const PIPELINE_EVERY_MS = 30_000;
+
+/** HABBLAUD_PIPELINE_DIR do ambiente ou do .env desta pasta (o mesmo que o docker:up lê). */
+function pipelineDir(): string | undefined {
+  let envFile = '';
+  try {
+    envFile = readFileSync(resolve('.env'), 'utf8');
+  } catch {
+    // sem .env
+  }
+  const raw = (process.env.HABBLAUD_PIPELINE_DIR ?? readEnvValue(envFile, 'HABBLAUD_PIPELINE_DIR') ?? '').trim();
+  if (!raw) return undefined;
+  const dir = resolve(raw.replace(/^~(?=\/|$)/, process.env.HOME || homedir()));
+  return isDir(join(dir, 'tarefas')) ? dir : undefined;
+}
+
+/**
+ * Pipeline do Orca: lê o que o runner espera do usuário (state.json de cada tarefa e o hash do gate, só leitura) e manda
+ * a foto em POST /api/host/pipeline. Nunca lança.
+ */
+export async function pipelineRound(post: Post, dir: string, gate = createGateReader(dir)): Promise<'down' | 'refused' | 'ok'> {
+  const pending = await readPipelinePending({ dir, gate }).catch(() => []);
+  const r = await post('/api/host/pipeline', { pending });
+  if (!r) return 'down';
+  return r.status === 200 ? 'ok' : 'refused';
+}
+
 /**
  * Ditado: busca os áudios (POST /api/host/dictation/poll), transcreve cada um com o Whisper local e devolve o texto e
  * o idioma em /api/host/dictation/ack. O texto nunca vai para a tela. Nunca lança.
@@ -411,7 +441,14 @@ async function main(): Promise<void> {
   // Encerrar pelo escritório: o mesmo ritmo, e a mesma pausa de um minuto quando o Habblaud recusa.
   const stopDeps: HostStopDeps = { accountDirs: discoverClaudeDirs(process.env), home: process.env.HOME || homedir(), claudeBin };
   let stopRetryAt = 0;
+  const pipeDir = pipelineDir();
+  if (pipeDir) log(tr('Pipeline do Orca: mando ao Habblaud o que o runner espera de você ({0}).', [pipeDir]));
+  let pipelineAt = 0;
   for (;;) {
+    if (pipeDir && Date.now() >= pipelineAt) {
+      const r = await pipelineRound(post, pipeDir);
+      pipelineAt = Date.now() + (r === 'refused' ? REFUSED_RETRY_MS : PIPELINE_EVERY_MS);
+    }
     if (Date.now() >= stopRetryAt && (await stopRound(post, stopDeps, log)) === 'refused') stopRetryAt = Date.now() + REFUSED_RETRY_MS;
     if (Date.now() >= spawnRetryAt) {
       spawned = await spawnRound(post, open, log, undefined, undefined, cli);

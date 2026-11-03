@@ -155,6 +155,16 @@ export interface AgentInfo {
   status: AgentStatus;
   /** Motivo em PT-BR quando status === 'waiting'. Ex.: "aprovar uma permissão". */
   waitingFor?: string;
+  /**
+   * Fase pedida pelo runner do pipeline do Orca (dev, review, plan…), lida do primeiro pedido da sessão. Ausente = sessão
+   * que não é do runner.
+   */
+  pipelinePhase?: 'plan' | 'prototype' | 'dev' | 'validate' | 'review' | 'docs';
+  /**
+   * O agente terminou o turno pedindo algo ao usuário (um gate, um teste, uma leitura, uma decisão): o trecho da resposta
+   * que pede. Heurística (shared/pipeline.ts asksYou); some quando chega um pedido novo.
+   */
+  asks?: string;
   /** Atividade atual (ou a mais recente). */
   activity?: Activity;
   /** Últimas atividades, da mais antiga para a mais recente (máx. ~30). */
@@ -209,6 +219,24 @@ export interface RoomInfo {
   createdAt: number;
   /** Efeito visual temporário na sala (eventos do GitHub detectados nos transcripts; ver shared/github.ts). */
   effect?: RoomEffect;
+  /** O que o runner do pipeline espera de você nas tarefas desta sala (server/pipeline/status.ts). */
+  pending?: PipelinePending[];
+}
+
+/**
+ * Uma tarefa do runner do pipeline do Orca esperando o usuário: gate (CP1 ou protótipo), recuperação de bloqueio ou MR
+ * pronto para abrir. `command` é a linha que resolve, mandada na sessão interativa do usuário.
+ */
+export interface PipelinePending {
+  task: string;
+  kind: 'cp1' | 'prototype' | 'blocked' | 'draft';
+  entrega?: string;
+  /** combined_hash do `pipeline.py gate` (gates). */
+  hash?: string;
+  /** Bloqueio: fase e motivo. */
+  reason?: string;
+  since?: number;
+  command?: string;
 }
 
 /**
@@ -370,6 +398,8 @@ export interface OfficeSnapshot {
      * (npm run codex:bridge) no ar. Ausente/false = indisponível (no modo Node, o "Encerrar" é o do terminal interativo).
      */
     stop?: boolean;
+    /** Pendências do runner do pipeline sem sala aberta no escritório (as outras vão em RoomInfo.pending). */
+    pipeline?: PipelinePending[];
     /**
      * Terminal interativo (abrir/assumir sessões e encerrar agentes pelo escritório): só fora do Docker, com
      * node-pty e acesso local. Ausente = recurso desligado.

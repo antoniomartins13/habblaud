@@ -23,6 +23,13 @@ do meio (0.**3**.0).
   `claude stop <id>`; num terminal, manda SIGTERM ao PID só depois de conferir que ele ainda é aquele Claude Code. A
   conversa fica guardada. Vale para sessões principais do Claude Code, com a mesma liberação do "Novo agente"
   (`HABBLAUD_PTY=1`; pelo acesso remoto, `spawn` em `HABBLAUD_REMOTE_ALLOW`).
+- **Pipeline do Orca: quem é dev, quem revisa e o que espera você.** Cada sessão aberta pelo runner ganha a
+  etiqueta da fase que ele pediu (DEV, REVISÃO, PLANO, DOCS, VALIDAÇÃO, PROTÓTIPO), lida do primeiro pedido; o agente
+  principal numa sala de funcionalidade sem fase é o COORD. O que o runner espera do usuário (CP1, protótipo, bloqueio,
+  MR em draft) aparece na sala da funcionalidade, com a linha que resolve pronta para copiar, ou no topo da lista quando
+  ninguém está na sala; quem lê os `state.json` é o auxiliar do host (o container continua sem ver o `.local/`). E o
+  agente que termina o turno pedindo algo (um teste, uma leitura, uma decisão) fica "Aguardando você", com o trecho
+  que pede, e entra no contador "Precisa de você" (heurística em `shared/pipeline.ts`).
 
 ### Corrigido
 
