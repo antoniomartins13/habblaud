@@ -319,6 +319,7 @@ export class ClaudeWatcher implements AgentSource {
         startedAt: entry.startedAt ?? this.now(),
         status: st.status ?? 'idle',
         waitingFor: st.waitingFor,
+        ...(entry.kind === 'bg' || entry.jobId ? { background: true } : {}),
       });
     } else if (t.sessionId !== entry.sessionId) {
       // /clear ou /resume no mesmo processo: mesmo personagem, transcript novo.

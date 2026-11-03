@@ -12,7 +12,7 @@ import { officeIsEmpty } from './overlays';
 import { createAgentRow, updateAgentRow } from './rows';
 import { createAccountChip, createProgress, updateAccountChip, updateProgress } from './widgets';
 import { tr } from '../../../shared/i18n';
-import { pendingItems } from './pending';
+import { findInteractiveConsole, pendingItems } from './pending';
 
 interface RoomRefs {
   head: HTMLButtonElement;
@@ -161,10 +161,16 @@ export class Sidebar implements UiComponent {
     const orphan = snap?.meta.pipeline ?? [];
     setHidden(this.runnerBox, !orphan.length);
     setText(this.runnerTitle, tr('✋ O runner espera você ({0})', [orphan.length]));
-    const runnerKey = JSON.stringify(orphan);
+    const consoleAgent = findInteractiveConsole(snap?.agents ?? []);
+    const runnerKey = `${consoleAgent?.id ?? ''}:${consoleAgent?.name ?? ''}:${JSON.stringify(orphan)}`;
     if (runnerKey !== this.runnerKey) {
       this.runnerKey = runnerKey;
-      this.runnerList.replaceChildren(...pendingItems(orphan));
+      this.runnerList.replaceChildren(
+        ...pendingItems(orphan, {
+          consoleAgent,
+          sendCommand: (agentId, cmd) => this.ctx.store.sendMessage(agentId, cmd),
+        }),
+      );
     }
     setHidden(this.filters, accounts.length <= 1);
 

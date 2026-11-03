@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
-import { parsePending, pendingCommand, PIPELINE_STALE_MS, PipelineStatus, readPipelinePending } from './status';
+import { parsePending, pendingCommand, PIPELINE_STALE_MS, PipelineStatus, readPipelineDoc, readPipelinePending } from './status';
 
 setQuiet(true);
 
@@ -72,8 +72,27 @@ describe('PipelineStatus e a linha que resolve', () => {
     expect(pendingCommand({ task: 'p', kind: 'prototype', hash: '0123456789abcdef' })).toBe('APROVAR PROTOTIPO p 0123456789');
     expect(pendingCommand({ task: 'p', kind: 'cp1' })).toBeUndefined();
     expect(pendingCommand({ task: 'b', kind: 'blocked', entrega: 'ent-b' })).toBe('RECUPERAR ent-b');
+    expect(pendingCommand({ task: 'aj4-back', kind: 'blocked', entrega: 'ent-a', reason: 'dev: RuntimeError: Dev sem progresso verificavel' })).toBe(
+      'RECUPERAR aj4-back validate',
+    );
     expect(pendingCommand({ task: 'c', kind: 'draft' })).toBeUndefined();
     expect(parsePending({ task: 'x', kind: 'cp1', reason: 'a'.repeat(500) })?.reason).toHaveLength(240);
+  });
+
+  it('lê a spec e o plano da tarefa em tarefas/<task>/, recusando nomes inválidos', () => {
+    const files: Record<string, string> = {
+      [`${DIR}/tarefas/aj4-back/task-spec.md`]: '# Spec aj4',
+      [`${DIR}/tarefas/aj4-back/plan.md`]: '# Plano aj4',
+    };
+    const read = (f: string) => {
+      if (!(f in files)) throw new Error('ENOENT');
+      return files[f]!;
+    };
+    expect(readPipelineDoc(DIR, 'aj4-back', 'spec', read)).toEqual({ task: 'aj4-back', doc: 'spec', name: 'task-spec.md', content: '# Spec aj4' });
+    expect(readPipelineDoc(DIR, 'aj4-back', 'plan', read)).toEqual({ task: 'aj4-back', doc: 'plan', name: 'plan.md', content: '# Plano aj4' });
+    expect(readPipelineDoc(DIR, '../etc', 'spec', read)).toBeUndefined();
+    expect(readPipelineDoc(DIR, 'aj4-back', 'outro', read)).toBeUndefined();
+    expect(readPipelineDoc(DIR, 'inexistente', 'spec', read)).toBeUndefined();
   });
 });
 

@@ -11253,10 +11253,36 @@ html.is-replay #world {
 }
 .ui-pending__title { display: block; margin-bottom: 4px; color: #f0b429; }
 .ui-pending__list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-.ui-pending__item { display: grid; gap: 2px; font-size: 12px; }
+.ui-pending__item { display: grid; gap: 4px; font-size: 12px; }
+.ui-pending__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
 .ui-pending__what { font-weight: 600; }
+.ui-pending__docs { display: inline-flex; gap: 4px; }
+.ui-pending__doc-btn.is-active { background: rgba(240, 180, 41, 0.28); border-color: #f0b429; }
+.ui-pending__doc-box {
+  margin: 2px 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+  background: rgba(10, 14, 24, 0.78);
+}
+.ui-pending__doc-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; font-size: 11px; }
+.ui-pending__doc-body {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+}
 .ui-pending__reason { color: var(--ui-muted, #8b98b3); }
+.ui-pending__cmd { flex-wrap: wrap; gap: 4px; }
 .ui-pending__cmd code { font-size: 11px; word-break: break-all; }
+.ui-pending__act { font-weight: 600; }
+.ui-pending__act.is-armed { background: #f0b429; color: #1a1a1a; border-color: #f0b429; }
+.ui-pending__act.is-done { opacity: 0.85; }
+.ui-pending__feedback { font-size: 11px; color: var(--ui-muted, #8b98b3); }
+.ui-pending__feedback.is-error { color: #ff6b6b; }
 .ui-room__pending {
   padding: 0 5px;
   border-radius: 8px;

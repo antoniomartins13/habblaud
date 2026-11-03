@@ -69,8 +69,36 @@ export function pendingCommand(p: PipelinePending): string | undefined {
   const target = p.entrega ?? p.task;
   if (p.kind === 'cp1' && p.hash) return `APROVAR CP1 ${target} ${p.hash.slice(0, 10)}`;
   if (p.kind === 'prototype' && p.hash) return `APROVAR PROTOTIPO ${target} ${p.hash.slice(0, 10)}`;
-  if (p.kind === 'blocked') return `RECUPERAR ${target}`;
+  if (p.kind === 'blocked') {
+    if (p.reason?.includes('Dev sem progresso')) return `RECUPERAR ${p.task} validate`;
+    return `RECUPERAR ${target}`;
+  }
   return undefined;
+}
+
+const DOC_MAX_BYTES = 256 * 1024;
+const DOC_FILES: Record<'spec' | 'plan', string> = {
+  spec: 'task-spec.md',
+  plan: 'plan.md',
+};
+
+/**
+ * Lê a spec (`task-spec.md`) ou o plano (`plan.md`) de uma tarefa em `_pipeline/tarefas/<task>/`, somente leitura.
+ */
+export function readPipelineDoc(
+  readDir: string,
+  task: string,
+  doc: string,
+  read: (f: string) => string = (f) => readFileSync(f, 'utf8'),
+): { task: string; doc: 'spec' | 'plan'; name: string; content: string } | undefined {
+  if (!TASK_ID.test(task) || (doc !== 'spec' && doc !== 'plan')) return undefined;
+  const name = DOC_FILES[doc];
+  try {
+    const content = read(join(readDir, 'tarefas', task, name)).slice(0, DOC_MAX_BYTES);
+    return { task, doc, name, content };
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------- lado do host (auxiliar)

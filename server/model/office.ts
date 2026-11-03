@@ -119,6 +119,8 @@ export interface MainInput {
   startedAt: number;
   status: AgentStatus;
   waitingFor?: string;
+  /** Sessão principal rodando em segundo plano (ex.: `claude --bg`). */
+  background?: boolean;
 }
 
 export interface SubInput {
@@ -373,6 +375,7 @@ export class Office {
       seed: chosen?.seed ?? hash32(p.id),
     };
     if (p.provider && p.provider !== 'claude') info.provider = p.provider;
+    if (p.background) info.background = true;
     if (chosen) {
       info.custom = true;
       if (chosen.parts) info.parts = { ...chosen.parts };

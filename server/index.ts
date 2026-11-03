@@ -22,7 +22,7 @@ import { NameStore } from './model/names';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
 import { StopService } from './spawn/stop';
-import { pendingCommand, PipelineStatus } from './pipeline/status';
+import { pendingCommand, PipelineStatus, readPipelineDoc } from './pipeline/status';
 import { PipelineRoomGroups } from './model/room-groups';
 import { createPtyRoutes } from './http/pty';
 import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
@@ -395,6 +395,9 @@ const api = createApiHandler({
     ? (raw) => {
         if (pipelineStatus.set(raw)) office.setPipelinePending(pipelineStatus.list().map((p) => ({ ...p, command: pendingCommand(p) })));
       }
+    : undefined,
+  pipelineDoc: config.pipelineDir
+    ? (task, doc) => readPipelineDoc(config.pipelineReadDir ?? config.pipelineDir!, task, doc)
     : undefined,
   attachments,
   dictation,

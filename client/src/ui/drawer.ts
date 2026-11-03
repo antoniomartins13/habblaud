@@ -48,7 +48,7 @@ import { SocialSection } from './social';
 import { canStop, stopAgent } from './stop';
 import { pipelineTag } from '../../../shared/pipeline';
 import { agentAsks } from './model';
-import { copyButton, pendingItems } from './pending';
+import { copyButton, findInteractiveConsole, pendingItems } from './pending';
 import { TERMINAL_UNAVAILABLE_HINT, type TerminalControl } from './terminal';
 import { Movable } from './movable';
 import type { PtyControl } from './pty';
@@ -960,11 +960,17 @@ class RoomView {
 
   /** Pendências do runner: o que é, de qual tarefa e a linha que resolve (para mandar na sua sessão interativa). */
   private renderPending(items: readonly PipelinePending[]): void {
-    const key = JSON.stringify(items);
+    const consoleAgent = findInteractiveConsole(this.ctx.store.snapshot?.agents ?? [], this.id);
+    const key = `${consoleAgent?.id ?? ''}:${consoleAgent?.name ?? ''}:${JSON.stringify(items)}`;
     setHidden(this.pendingBox, !items.length);
     if (key === this.pendingKey) return;
     this.pendingKey = key;
-    this.pendingList.replaceChildren(...pendingItems(items));
+    this.pendingList.replaceChildren(
+      ...pendingItems(items, {
+        consoleAgent,
+        sendCommand: (agentId, cmd) => this.ctx.store.sendMessage(agentId, cmd),
+      }),
+    );
   }
 
   /** Sessão nova na pasta da sala, na conta de quem estiver nela (ou na padrão). */

@@ -74,6 +74,8 @@ export interface ApiDeps {
   stop?: StopService;
   /** Foto do runner do pipeline enviada pelo auxiliar do host (POST /api/host/pipeline); ausente = desligado. */
   pipelineStatus?: (raw: unknown) => void;
+  /** Leitura somente-leitura da spec/plano de uma tarefa do pipeline (GET /api/pipeline/doc). */
+  pipelineDoc?: (task: string, doc: string) => { task: string; doc: 'spec' | 'plan'; name: string; content: string } | undefined;
   /** Pastas sugeridas no "Novo agente" (GET /api/spawn/folders; spawn/folders.ts): projetos recentes. */
   spawnFolders?: () => Promise<SpawnFolder[]>;
   /** Anexos do "Novo agente" (POST /api/spawn/attachments; spawn/attachments.ts). */
@@ -579,6 +581,21 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         if (info) sendJson(res, 200, info);
         else sendJson(res, 404, { error: tr('pedido desconhecido') });
       } else methodNotAllowed(res, path === '/api/stop' ? 'GET, POST' : 'GET');
+      return true;
+    }
+    if (path === '/api/pipeline/doc') {
+      // Spec e plano de uma tarefa do pipeline para ler ao lado do botão Aprovar (vale com terminal ou messages).
+      if (!isRead) methodNotAllowed(res, 'GET');
+      else if (!deps.pipelineDoc) sendJson(res, 403, { error: tr('salas por funcionalidade desligadas (HABBLAUD_PIPELINE_DIR)') });
+      else if (!trusted(req, 'terminal') && !trusted(req, 'messages')) {
+        sendJson(res, 403, { error: denied(req, tr('a leitura da spec/plano só abre com acesso ao terminal ou mensagens')) });
+      } else {
+        const task = url.searchParams.get('task') ?? '';
+        const doc = url.searchParams.get('doc') ?? '';
+        const found = deps.pipelineDoc(task, doc);
+        if (found) sendJson(res, 200, found);
+        else sendJson(res, 404, { error: tr('documento não encontrado') });
+      }
       return true;
     }
     if (path === '/api/host/pipeline') {
