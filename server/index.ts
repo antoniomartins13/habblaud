@@ -21,6 +21,7 @@ import { errMsg, log } from './log';
 import { NameStore } from './model/names';
 import { Office } from './model/office';
 import { RoomAliases } from './model/room-aliases';
+import { PipelineRoomGroups } from './model/room-groups';
 import { createPtyRoutes } from './http/pty';
 import { claudeBinFrom, isExecutableFile, loadPty, PtyManager, type ScreenFactory, type SpawnPty } from './pty/manager';
 import { loadHeadlessScreen } from './pty/screen';
@@ -115,9 +116,12 @@ const accounts = new AccountsService({
   usageDir: config.usageDir,
   onChange: () => late.office?.markDirty(),
 });
+const roomGroups = config.pipelineDir ? new PipelineRoomGroups({ dir: config.pipelineDir, readDir: config.pipelineReadDir }) : undefined;
+if (roomGroups) log.info(tr('Salas por funcionalidade: pipeline em {0}.', [config.pipelineDir!]));
 const office = new Office({
   names,
   roomAlias: (path) => roomAliases.get(path),
+  roomGroup: roomGroups ? (cwd) => roomGroups.group(cwd) : undefined,
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
@@ -316,7 +320,7 @@ const ptys = spawnPty
       accounts: () => accounts.entries().map((a) => ({ id: a.id, dir: a.dir, isDefault: isDefaultDir(a.dir, config.home) })),
       agent: (id) => {
         const a = office.get(id);
-        return a && { id: a.id, kind: a.kind, account: a.account, sessionId: a.sessionId, cwd: office.roomPath(a.roomId) };
+        return a && { id: a.id, kind: a.kind, account: a.account, sessionId: a.sessionId, cwd: office.agentCwd(a.id) };
       },
       onChange: () => office.markDirty(),
       createScreen: ptyScreen,

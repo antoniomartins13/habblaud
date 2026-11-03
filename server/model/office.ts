@@ -31,6 +31,7 @@ import { hash32 } from '../../shared/hash';
 import { applyPermission } from '../permissions/registry';
 import type { NameStore, StoredCharacter } from './names';
 import { normalizeCwd, roomDisplayNames, SlotAllocator } from './rooms';
+import type { RoomGroup } from './room-groups';
 import { tr } from '../../shared/i18n';
 import type { WorldMeta } from '../../shared/world/api';
 
@@ -56,6 +57,8 @@ export interface OfficeDeps {
   names: NameStore;
   /** Nome escolhido pelo usuário para a sala da pasta (model/room-aliases.ts), se houver. */
   roomAlias?: (path: string) => string | undefined;
+  /** Sala agrupada da pasta (model/room-groups.ts: funcionalidade do pipeline, MR em revisão), se houver. */
+  roomGroup?: (cwd: string) => RoomGroup | undefined;
   version: string;
   /** Build do cliente servido (ver OfficeSnapshot.meta.build); ausente no modo dev e nos testes. */
   build?: () => string | undefined;
@@ -122,6 +125,8 @@ export interface SubInput {
 interface AgentRecord {
   info: AgentInfo;
   history: Activity[];
+  /** Pasta da sessão: numa sala agrupada, não é a pasta da sala. */
+  cwd?: string;
   removeAt?: number;
   /** Início do turno atual (para "Concluiu em X"). */
   turnStart?: number;
@@ -196,7 +201,7 @@ const byStart = (a: ShellJob, b: ShellJob) => a.startedAt - b.startedAt || a.id.
 
 export class Office {
   private agents = new Map<string, AgentRecord>();
-  private rooms = new Map<string, { path: string; createdAt: number }>();
+  private rooms = new Map<string, { path: string; createdAt: number; name?: string }>();
   private slots = new SlotAllocator(SLOT_COOLDOWN_MS);
   private roomNames = new Map<string, string>();
   private feed: FeedItem[] = [];
@@ -287,9 +292,17 @@ export class Office {
     return [...this.agents.values()].map((r) => r.info);
   }
 
-  /** Pasta do projeto da sala (cwd original, sem normalizar). */
+  /** Pasta do projeto da sala (cwd original, sem normalizar; numa sala agrupada, a pasta do grupo). */
   roomPath(roomId: string): string | undefined {
     return this.rooms.get(roomId)?.path;
+  }
+
+  /** Pasta da sessão do agente (a do agente principal, para subagentes); cai na pasta da sala. */
+  agentCwd(id: string): string | undefined {
+    const rec = this.agents.get(id);
+    if (!rec) return undefined;
+    const main = rec.info.parentId ? this.agents.get(rec.info.parentId) : rec;
+    return main?.cwd ?? this.roomPath(rec.info.roomId);
   }
 
   roomName(roomId: string): string {
@@ -322,8 +335,9 @@ export class Office {
       this.setStatus(p.id, p.status, p.waitingFor);
       return;
     }
-    const roomId = normalizeCwd(p.cwd);
-    this.ensureRoom(roomId, now);
+    const group = this.deps.roomGroup?.(p.cwd);
+    const roomId = group?.id ?? normalizeCwd(p.cwd);
+    this.ensureRoom(roomId, now, group);
     const chosen = this.roomCharacter(roomId, p.id, p.sessionId);
     // A mesma sessão retomada noutro processo (ex.: "Assumir aqui") mantém o nome, mesmo com o processo antigo
     // ainda saindo do escritório.
@@ -352,7 +366,7 @@ export class Office {
       if (chosen.parts) info.parts = { ...chosen.parts };
     }
     if (p.status === 'waiting') info.waitingFor = p.waitingFor ?? tr('responder no terminal');
-    const rec: AgentRecord = { info, history: [] };
+    const rec: AgentRecord = { info, history: [], cwd: p.cwd };
     if (p.status === 'working') rec.turnStart = now;
     this.agents.set(p.id, rec);
     const acc = this.deps.accountName(p.account);
@@ -1038,9 +1052,9 @@ export class Office {
     return out;
   }
 
-  private ensureRoom(roomId: string, now: number): void {
+  private ensureRoom(roomId: string, now: number, group?: RoomGroup): void {
     if (this.rooms.has(roomId)) return;
-    this.rooms.set(roomId, { path: roomId, createdAt: now });
+    this.rooms.set(roomId, group ? { path: group.path, createdAt: now, name: group.name } : { path: roomId, createdAt: now });
     this.recomputeRoomNames();
     this.notice('room', roomId, 'info', tr('🏗️ Nova sala: {0}', [this.roomName(roomId)]), roomId);
   }
@@ -1049,6 +1063,7 @@ export class Office {
     const paths = new Map([...this.rooms].map(([id, r]) => [id, r.path]));
     for (const r of this.demoSnap?.rooms ?? []) paths.set(r.id, r.path);
     this.roomNames = roomDisplayNames(paths);
+    for (const [id, r] of this.rooms) if (r.name) this.roomNames.set(id, r.name);
     for (const [id, path] of paths) {
       const alias = this.deps.roomAlias?.(path);
       if (alias) this.roomNames.set(id, alias);

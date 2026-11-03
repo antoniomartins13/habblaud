@@ -59,6 +59,8 @@ const USAGE_DIR = process.env.HABBLAUD_USAGE_DIR?.trim() ? resolve(process.env.H
 const CONTAINER_USAGE_DIR = '/usage';
 /** Onde o container lê o certificado do acesso remoto (server/http/remote.ts). */
 const CONTAINER_REMOTE_TLS_DIR = '/remote-tls';
+/** Onde o container lê tarefas/ e config/local.json do pipeline do Orca (salas por funcionalidade). */
+const CONTAINER_PIPELINE_DIR = '/pipeline';
 const SERVICE = 'habblaud';
 /** Raiz das montagens dentro do container: /claude/<conta>/{projects,sessions}. */
 const CONTAINER_ROOT = '/claude';
@@ -303,6 +305,33 @@ export function hostTimeZone(env: NodeJS.ProcessEnv = process.env): string | und
   return tz && /^[A-Za-z0-9_+\-]+(?:\/[A-Za-z0-9_+\-]+)*$/.test(tz) ? tz : undefined;
 }
 
+/** Pipeline do Orca para as salas por funcionalidade: a pasta _pipeline (host) e se config/local.json existe. */
+export interface PipelineMount {
+  dir: string;
+  localJson: boolean;
+}
+
+/**
+ * HABBLAUD_PIPELINE_DIR (ambiente ou .env): a pasta _pipeline, com tarefas/ dentro. Inválida = aviso e sem salas
+ * por funcionalidade.
+ */
+function preparePipeline(): PipelineMount | undefined {
+  let envFile = '';
+  try {
+    envFile = readFileSync(ENV_FILE, 'utf8');
+  } catch {
+    // sem .env: só o ambiente
+  }
+  const raw = (process.env.HABBLAUD_PIPELINE_DIR ?? readEnvValue(envFile, 'HABBLAUD_PIPELINE_DIR') ?? '').trim();
+  if (!raw) return undefined;
+  const dir = resolve(raw.replace(/^~(?=\/|$)/, HOME));
+  if (!statOk(join(dir, 'tarefas'))) {
+    warn(tr('HABBLAUD_PIPELINE_DIR={0} não tem tarefas/: salas por funcionalidade desligadas.', [tildify(dir)]));
+    return undefined;
+  }
+  return { dir, localJson: statOk(join(dir, 'config', 'local.json')) };
+}
+
 /**
  * `usageDir`: pasta do host com o uso capturado pelo tap de statusline (já existente; caminho real),
  * montada somente leitura em /usage. `timeZone`: fuso do host, repassado como TZ. `codex`: montagens das contas do
@@ -316,6 +345,7 @@ export function renderOverride(
   codex: AccountMount[] = [],
   remoteTlsDir?: string,
   extraPorts: string[] = [],
+  pipeline?: PipelineMount,
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
@@ -324,6 +354,7 @@ export function renderOverride(
   if (codex.length) env.push(['HABBLAUD_CODEX_DIRS', codex.map((m) => m.mountDir).join(',')]);
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
+  if (pipeline) env.push(['HABBLAUD_PIPELINE_DIR', pipeline.dir], ['HABBLAUD_PIPELINE_READ_DIR', CONTAINER_PIPELINE_DIR]);
   const lines = [
     `# Gerado por scripts/docker-up.ts em ${generatedAt.toISOString()} — não edite: é recriado a cada \`npm run docker:up\`.`,
     '# Contém caminhos do host e e-mails das contas: fica fora do git e com permissão 600.',
@@ -340,6 +371,11 @@ export function renderOverride(
   if (usageDir) binds.push({ source: usageDir, target: CONTAINER_USAGE_DIR });
   // Acesso remoto: SÓ a pasta do certificado do servidor (a chave da CA fica no host).
   if (remoteTlsDir) binds.push({ source: remoteTlsDir, target: CONTAINER_REMOTE_TLS_DIR });
+  // Pipeline: SÓ tarefas/ e config/local.json (nunca .local/, com aprovações, logs e estado do runner).
+  if (pipeline) {
+    binds.push({ source: posix.join(pipeline.dir, 'tarefas'), target: posix.join(CONTAINER_PIPELINE_DIR, 'tarefas') });
+    if (pipeline.localJson) binds.push({ source: posix.join(pipeline.dir, 'config', 'local.json'), target: posix.join(CONTAINER_PIPELINE_DIR, 'config', 'local.json') });
+  }
   if (binds.length) {
     lines.push('    volumes:');
     for (const b of binds) {
@@ -712,8 +748,10 @@ async function up(opts: Options, port: number): Promise<void> {
   if (usageDir) say(tr('Uso ao vivo (mod ou tap de statusline): monta {0} em {1}, somente leitura.', [tildify(USAGE_DIR), CONTAINER_USAGE_DIR]));
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
+  const pipeline = preparePipeline();
+  if (pipeline) say(tr('Salas por funcionalidade: monta tarefas/ e config/local.json de {0}, somente leitura.', [tildify(pipeline.dir)]));
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts), { mode: 0o600 });
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, pipeline), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say(tr('docker-compose.override.yml gerado.'));

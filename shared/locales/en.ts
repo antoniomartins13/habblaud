@@ -3306,4 +3306,11 @@ export const EN: Readonly<Record<string, string>> = {
   "{0} (semana)": "{0} (week)",
   "É o mesmo número do /usage do agy (cota semanal por grupo de modelos), lido do statusline dele.": "It's the same number from agy's /usage (weekly quota per model group), read from its statusline.",
   "Para mostrar o uso: npm run antigravity:install -- --uso (acrescenta um statusLine no settings.json do agy, com backup).": "To show usage: npm run antigravity:install -- --uso (adds a statusLine to agy's settings.json, with a backup).",
+  "Salas por funcionalidade: pipeline em {0}.": "Feature rooms: pipeline at {0}.",
+  "Revisões": "Reviews",
+  "MR !{0}": "MR !{0}",
+  "Salas por funcionalidade: não consegui ler {0} ({1}).": "Feature rooms: couldn't read {0} ({1}).",
+  "Salas por funcionalidade: config/local.json ilegível ({0}).": "Feature rooms: config/local.json is unreadable ({0}).",
+  "HABBLAUD_PIPELINE_DIR={0} não tem tarefas/: salas por funcionalidade desligadas.": "HABBLAUD_PIPELINE_DIR={0} has no tarefas/: feature rooms turned off.",
+  "Salas por funcionalidade: monta tarefas/ e config/local.json de {0}, somente leitura.": "Feature rooms: mounts tarefas/ and config/local.json from {0}, read-only.",
 };

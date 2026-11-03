@@ -3323,4 +3323,11 @@ export const FR: Readonly<Record<string, string>> = {
   "{0} (semana)": "{0} (semaine)",
   "É o mesmo número do /usage do agy (cota semanal por grupo de modelos), lido do statusline dele.": "C'est le même nombre que le /usage d'agy (quota hebdomadaire par groupe de modèles), lu depuis son statusline.",
   "Para mostrar o uso: npm run antigravity:install -- --uso (acrescenta um statusLine no settings.json do agy, com backup).": "Pour afficher l'utilisation : npm run antigravity:install -- --uso (ajoute un statusLine au settings.json d'agy, avec une sauvegarde).",
+  "Salas por funcionalidade: pipeline em {0}.": "Salles par fonctionnalité : pipeline dans {0}.",
+  "Revisões": "Revues",
+  "MR !{0}": "MR !{0}",
+  "Salas por funcionalidade: não consegui ler {0} ({1}).": "Salles par fonctionnalité : impossible de lire {0} ({1}).",
+  "Salas por funcionalidade: config/local.json ilegível ({0}).": "Salles par fonctionnalité : config/local.json illisible ({0}).",
+  "HABBLAUD_PIPELINE_DIR={0} não tem tarefas/: salas por funcionalidade desligadas.": "HABBLAUD_PIPELINE_DIR={0} n'a pas de tarefas/ : salles par fonctionnalité désactivées.",
+  "Salas por funcionalidade: monta tarefas/ e config/local.json de {0}, somente leitura.": "Salles par fonctionnalité : monte tarefas/ et config/local.json de {0}, en lecture seule.",
 };

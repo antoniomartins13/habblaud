@@ -841,6 +841,7 @@ Everything works without configuring anything. If you need to adjust something, 
 | `HABBLAUD_BIND` | `127.0.0.1` | Docker only (in `.env`): where the port is published. `0.0.0.0` opens it to the local network (and turns off the terminal and anything that acts on the sessions). |
 | `HABBLAUD_CLAUDE_DIRS` | automatic detection | Account folders, comma-separated (e.g. `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Where Habblaud keeps its own data (character and room names, the timelapse timeline and the My day stats). |
+| `HABBLAUD_PIPELINE_DIR` | — | The `_pipeline` folder of an Orca workspace. Turns on feature rooms: the task worktrees and folders of the same delivery (`entrega` in `task.json`) share one room, and peer MR reviews get one room per MR (`_review-wt/*_mr<N>*`); review checkouts without a number go to "Reviews". In Docker, `docker:up` mounts only `tarefas/` and `config/local.json`, read-only. |
 | `HABBLAUD_TIMELINE` | on | `0` turns off timeline recording (the days already recorded stay in the timelapse). In Docker it's always on. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Where the mod (or the statusline tap) writes usage. |
 | `HABBLAUD_DEMO` | off | `1` turns on demo mode at startup. |

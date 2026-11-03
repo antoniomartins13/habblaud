@@ -837,6 +837,7 @@ Tudo funciona sem configurar nada. Se precisar ajustar, use variáveis de ambien
 | `HABBLAUD_BIND` | `127.0.0.1` | Só Docker (no `.env`): onde a porta é publicada. `0.0.0.0` libera a rede local (e desliga o terminal e o que age sobre as sessões). |
 | `HABBLAUD_CLAUDE_DIRS` | detecção automática | Pastas das contas, separadas por vírgula (ex.: `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Onde o Habblaud guarda os próprios dados (nomes dos personagens e das salas, linha do tempo do timelapse e estatísticas do Meu dia). |
+| `HABBLAUD_PIPELINE_DIR` | — | A pasta `_pipeline` de uma workspace do Orca. Liga as salas por funcionalidade: os worktrees e as pastas das tarefas da mesma entrega (`entrega` no `task.json`) dividem uma sala, e a revisão de MR de colega ganha uma sala por MR (`_review-wt/*_mr<N>*`); os checkouts de revisão sem número vão para "Revisões". No Docker, o `docker:up` monta só `tarefas/` e `config/local.json`, somente leitura. |
 | `HABBLAUD_TIMELINE` | ligado | `0` desliga a gravação da linha do tempo (os dias já gravados continuam no timelapse). No Docker fica sempre ligado. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Onde o mod (ou o tap de statusline) grava o uso. |
 | `HABBLAUD_DEMO` | desligado | `1` liga o modo demonstração ao iniciar. |

@@ -10,6 +10,15 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Salas por funcionalidade do pipeline do Orca (`HABBLAUD_PIPELINE_DIR`).** Com a pasta `_pipeline` configurada, as
+  sessões nos worktrees e nas pastas das tarefas da mesma entrega (o `entrega` do `task.json`, a unidade que o CP1
+  aprova) dividem uma sala com o nome da entrega: quem implementa e quem revisa ficam juntos. A revisão de MR de colega
+  ganha uma sala por MR (`MR !596`), juntando os checkouts `be_`/`fe_` e as rodadas; checkouts sem número vão para
+  "Revisões". "Nova sessão" na sala abre o agente na pasta da entrega. Tarefa nova entra sozinha (os `task.json` são
+  relidos a cada 30 s). O terminal interativo continua abrindo cada agente na pasta dele.
+
 ### Corrigido
 
 - **Acesso pelo celular: `npm run remote:setup` no Linux com `/tmp` em tmpfs.** A chave da CA e o certificado eram

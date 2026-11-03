@@ -751,6 +751,7 @@ Todo funciona sin configurar nada. Si necesitas ajustar algo, usa variables de e
 | `HABBLAUD_BIND` | `127.0.0.1` | Solo Docker (en el `.env`): dónde se publica el puerto. `0.0.0.0` abre la red local (y desactiva la terminal y lo que actúa sobre las sesiones). |
 | `HABBLAUD_CLAUDE_DIRS` | detección automática | Carpetas de las cuentas, separadas por comas (p. ej., `/caminho/conta1,/caminho/conta2`). |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` | Dónde guarda Habblaud sus propios datos (nombres de los personajes y de las salas, línea de tiempo del timelapse y estadísticas de Mi día). |
+| `HABBLAUD_PIPELINE_DIR` | — | La carpeta `_pipeline` de un workspace de Orca. Activa las salas por funcionalidad: los worktrees y carpetas de las tareas de la misma entrega (`entrega` en `task.json`) comparten una sala, y la revisión de MR de un colega tiene una sala por MR (`_review-wt/*_mr<N>*`); los checkouts de revisión sin número van a "Revisiones". En Docker, `docker:up` monta solo `tarefas/` y `config/local.json`, en solo lectura. |
 | `HABBLAUD_TIMELINE` | activada | `0` desactiva la grabación de la línea de tiempo (los días ya grabados siguen en el timelapse). En Docker siempre está activada. |
 | `HABBLAUD_USAGE_DIR` | `~/.habblaud/usage` | Dónde guarda el uso el mod (o el tap de statusline). |
 | `HABBLAUD_DEMO` | desactivado | `1` activa el modo demostración al iniciar. |

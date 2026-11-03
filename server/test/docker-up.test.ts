@@ -141,6 +141,22 @@ describe('docker-up', () => {
     expect(hostTimeZone({ TZ: 'x"; rm -rf' })).toBeUndefined();
     expect(hostTimeZone({})).toMatch(/^[A-Za-z]/);
   });
+
+  it('salas por funcionalidade: monta só tarefas/ e config/local.json do pipeline, somente leitura', () => {
+    const mounts = planMounts(['/Users/fulano/.claude'], [acc('.claude')], slash);
+    const dir = '/Users/fulano/Orca-workspace/_pipeline';
+    const yml = renderOverride(mounts, new Date(0), undefined, undefined, [], undefined, [], { dir, localJson: true });
+    expect(yml).toContain(`HABBLAUD_PIPELINE_DIR: "${dir}"`);
+    expect(yml).toContain('HABBLAUD_PIPELINE_READ_DIR: "/pipeline"');
+    expect(yml).toContain(`source: "${dir}/tarefas"`);
+    expect(yml).toContain('target: "/pipeline/tarefas"');
+    expect(yml).toContain(`source: "${dir}/config/local.json"`);
+    expect(yml).not.toContain('.local');
+    expect(yml.match(/read_only: true/g)).toHaveLength(yml.match(/type: bind/g)!.length);
+    const semLocal = renderOverride(mounts, new Date(0), undefined, undefined, [], undefined, [], { dir, localJson: false });
+    expect(semLocal).not.toContain('local.json');
+    expect(renderOverride(mounts)).not.toContain('PIPELINE');
+  });
 });
 
 describe('docker-up: migração do nome antigo (CodeTown)', () => {
