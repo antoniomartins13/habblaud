@@ -30,6 +30,10 @@ do meio (0.**3**.0).
   ninguém está na sala; quem lê os `state.json` é o auxiliar do host (o container continua sem ver o `.local/`). E o
   agente que termina o turno pedindo algo (um teste, uma leitura, uma decisão) fica "Aguardando você", com o trecho
   que pede, e entra no contador "Precisa de você" (heurística em `shared/pipeline.ts`).
+- **Terminal do Antigravity (agy).** O terminal do escritório (também pelo acesso remoto) mostra as conversas do agy:
+  o pedido, as respostas, as chamadas de ferramenta e os resultados, lidos do `transcript_full.jsonl` que o agy grava
+  em `~/.gemini/antigravity-cli/brain/`. As sessões do runner no agy ganham a etiqueta da fase, como as do Claude. No
+  Docker, o `docker:up` monta só a pasta `brain/`, somente leitura (o token de login do agy fica fora dela).
 
 ### Corrigido
 

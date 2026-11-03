@@ -6,6 +6,9 @@
 // não tem hook de fim de sessão). Status: PreInvocation/PreToolUse/PostToolUse/PostInvocation = trabalhando (entre uma
 // passada do modelo e a próxima vêm PostInvocation e logo PreInvocation: não é ocioso); Stop (com fullyIdle) = ocioso.
 // Atividade: o nome da ferramenta + o texto curto que o hook mandou (nunca o resto dos args nem a saída).
+import { existsSync } from 'node:fs';
+import { agyPipelinePhase, agyTranscriptPath, createAgyTerminalParser } from './terminal';
+import type { TerminalParser } from '../terminal';
 import { readFileSync, statSync } from 'node:fs';
 import type { AgentStatus, SourceInfo } from '../../../shared/types';
 import type { AccountsService } from '../../accounts/service';
@@ -37,6 +40,11 @@ export interface AntigravitySourceOptions {
   usageFile?: string;
   /** De quanto em quanto tempo conferir o arquivo das cotas (padrão 5 s). */
   usagePollMs?: number;
+  /**
+   * Pasta brain/ do agy (~/.gemini/antigravity-cli/brain; no Docker, a montagem somente leitura): onde ficam os
+   * transcripts das conversas, para o terminal e a fase do runner. Ausente = sem terminal, como antes.
+   */
+  brainDir?: string;
 }
 
 /** O arquivo das cotas tem ~300 bytes; maior que isto não é dele. */
@@ -49,6 +57,8 @@ interface Tracker {
   status: AgentStatus;
   lastEventAt: number;
   lastActivityId?: string;
+  /** Leituras do transcript à procura da fase do runner (o arquivo pode ainda não existir no primeiro evento). */
+  phaseTries?: number;
 }
 
 /** Primeira letra de atalho livre (não repete as das outras contas). */
@@ -97,9 +107,16 @@ export class AntigravitySource implements AgentSource, AntigravityLive {
     return [{ label: this.accountId, provider: 'antigravity', path: '', sessions, ok: true }];
   }
 
-  /** O agy não deixa uma conversa em arquivo de texto que a fonte leia: sem terminal nem histórico. */
-  transcriptPathOf(_agentId: string): string | undefined {
-    return undefined;
+  /** O transcript da conversa (brain/<id>/…/transcript_full.jsonl), se a pasta brain/ estiver disponível e ele existir. */
+  transcriptPathOf(agentId: string): string | undefined {
+    const t = this.trackers.get(agentId);
+    if (!t?.inOffice || !this.opts.brainDir) return undefined;
+    const path = agyTranscriptPath(this.opts.brainDir, t.conversationId);
+    return path && existsSync(path) ? path : undefined;
+  }
+
+  terminalParser(agentId: string): TerminalParser | undefined {
+    return this.trackers.has(agentId) ? createAgyTerminalParser() : undefined;
   }
 
   /** A conta só é registrada no primeiro evento: sem `agy` em uso, não aparece conta nenhuma. */
@@ -173,6 +190,7 @@ export class AntigravitySource implements AgentSource, AntigravityLive {
       if (!t.inOffice) return false;
     }
     t.lastEventAt = now;
+    this.readPhase(t);
 
     switch (event.event) {
       case 'Stop':
@@ -206,6 +224,19 @@ export class AntigravitySource implements AgentSource, AntigravityLive {
     if (t.inOffice) {
       office.setStatus(t.key, status); // reaberta durante o período de graça
       t.status = status;
+      this.readPhase(t);
+    }
+  }
+
+  /** Sessão do runner do pipeline: a fase vem do primeiro pedido do transcript (até 5 tentativas, uma por evento). */
+  private readPhase(t: Tracker): void {
+    if ((t.phaseTries ?? 0) >= 5 || this.opts.office.get(t.key)?.pipelinePhase) return;
+    t.phaseTries = (t.phaseTries ?? 0) + 1;
+    const path = this.transcriptPathOf(t.key);
+    const phase = path ? agyPipelinePhase(path) : undefined;
+    if (phase) {
+      this.opts.office.setPipelinePhase(t.key, phase);
+      t.phaseTries = 5;
     }
   }
 

@@ -62,6 +62,8 @@ export interface ServerConfig {
   opencodeDir: string;
   /** Aceita os eventos dos hooks do Antigravity CLI (sources/antigravity/); HABBLAUD_ANTIGRAVITY=0 desliga. */
   antigravity: boolean;
+  /** Pasta brain/ do agy (transcripts, para o terminal): HABBLAUD_ANTIGRAVITY_BRAIN ou ~/.gemini/antigravity-cli/brain. */
+  antigravityBrainDir: string;
   /**
    * Pasta _pipeline do Orca (HABBLAUD_PIPELINE_DIR, caminho do host): liga as salas por funcionalidade
    * (model/room-groups.ts). Ausente = uma sala por pasta, como sempre.
@@ -277,6 +279,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
     opencode: !env.HABBLAUD_OPENCODE?.trim() || isTruthy(env.HABBLAUD_OPENCODE),
     opencodeDir: opencodeDataDir(env, home),
     antigravity: !env.HABBLAUD_ANTIGRAVITY?.trim() || isTruthy(env.HABBLAUD_ANTIGRAVITY),
+    antigravityBrainDir: env.HABBLAUD_ANTIGRAVITY_BRAIN?.trim() ? resolve(env.HABBLAUD_ANTIGRAVITY_BRAIN.trim()) : join(home, '.gemini', 'antigravity-cli', 'brain'),
     pipelineDir: env.HABBLAUD_PIPELINE_DIR?.trim() || undefined,
     pipelineReadDir: env.HABBLAUD_PIPELINE_READ_DIR?.trim() || undefined,
   };

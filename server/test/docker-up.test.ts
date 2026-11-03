@@ -157,6 +157,17 @@ describe('docker-up', () => {
     expect(semLocal).not.toContain('local.json');
     expect(renderOverride(mounts)).not.toContain('PIPELINE');
   });
+
+  it('agy: monta só a pasta brain/ (as conversas), somente leitura, nunca a do token de login', () => {
+    const mounts = planMounts(['/Users/fulano/.claude'], [acc('.claude')], slash);
+    const brain = '/Users/fulano/.gemini/antigravity-cli/brain';
+    const yml = renderOverride(mounts, new Date(0), undefined, undefined, [], undefined, [], undefined, brain);
+    expect(yml).toContain(`source: "${brain}"`);
+    expect(yml).toContain('HABBLAUD_ANTIGRAVITY_BRAIN: "/antigravity/brain"');
+    expect(yml).not.toMatch(/source: "[^"]*antigravity-cli"\n/);
+    expect(yml).not.toContain('oauth');
+    expect(yml.match(/read_only: true/g)).toHaveLength(yml.match(/type: bind/g)!.length);
+  });
 });
 
 describe('docker-up: migração do nome antigo (CodeTown)', () => {

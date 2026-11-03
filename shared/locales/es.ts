@@ -3355,4 +3355,5 @@ export const ES: Readonly<Record<string, string>> = {
   "O runner espera você: {0}": "El runner te espera: {0}",
   "Recuperar o bloqueio": "Recuperar el bloqueo",
   "✋ O runner espera você ({0})": "✋ El runner te espera ({0})",
+  "Antigravity: monta {0} (as conversas, para o terminal), somente leitura.": "Antigravity: monta {0} (las conversaciones, para la terminal), solo lectura.",
 };

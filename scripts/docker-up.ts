@@ -61,6 +61,8 @@ const CONTAINER_USAGE_DIR = '/usage';
 const CONTAINER_REMOTE_TLS_DIR = '/remote-tls';
 /** Onde o container lê tarefas/ e config/local.json do pipeline do Orca (salas por funcionalidade). */
 const CONTAINER_PIPELINE_DIR = '/pipeline';
+/** Onde o container lê os transcripts do agy (a pasta brain/; o token de login fica fora dela). */
+const CONTAINER_AGY_BRAIN = '/antigravity/brain';
 const SERVICE = 'habblaud';
 /** Raiz das montagens dentro do container: /claude/<conta>/{projects,sessions}. */
 const CONTAINER_ROOT = '/claude';
@@ -346,6 +348,7 @@ export function renderOverride(
   remoteTlsDir?: string,
   extraPorts: string[] = [],
   pipeline?: PipelineMount,
+  agyBrain?: string,
 ): string {
   const env: Array<[string, string]> = [
     ['HABBLAUD_CLAUDE_DIRS', mounts.map((m) => m.mountDir).join(',')],
@@ -355,6 +358,7 @@ export function renderOverride(
   if (usageDir) env.push(['HABBLAUD_USAGE_DIR', CONTAINER_USAGE_DIR]);
   if (timeZone) env.push(['TZ', timeZone]);
   if (pipeline) env.push(['HABBLAUD_PIPELINE_DIR', pipeline.dir], ['HABBLAUD_PIPELINE_READ_DIR', CONTAINER_PIPELINE_DIR]);
+  if (agyBrain) env.push(['HABBLAUD_ANTIGRAVITY_BRAIN', CONTAINER_AGY_BRAIN]);
   const lines = [
     `# Gerado por scripts/docker-up.ts em ${generatedAt.toISOString()} — não edite: é recriado a cada \`npm run docker:up\`.`,
     '# Contém caminhos do host e e-mails das contas: fica fora do git e com permissão 600.',
@@ -376,6 +380,8 @@ export function renderOverride(
     binds.push({ source: posix.join(pipeline.dir, 'tarefas'), target: posix.join(CONTAINER_PIPELINE_DIR, 'tarefas') });
     if (pipeline.localJson) binds.push({ source: posix.join(pipeline.dir, 'config', 'local.json'), target: posix.join(CONTAINER_PIPELINE_DIR, 'config', 'local.json') });
   }
+  // agy: SÓ a pasta brain/ (as conversas), nunca antigravity-cli/ inteira (lá fica o token de login).
+  if (agyBrain) binds.push({ source: agyBrain, target: CONTAINER_AGY_BRAIN });
   if (binds.length) {
     lines.push('    volumes:');
     for (const b of binds) {
@@ -749,9 +755,12 @@ async function up(opts: Options, port: number): Promise<void> {
   const remoteTlsDir = prepareRemoteTls();
   const remotePorts = remoteTlsDir || remoteInsecure() ? remotePortsToPublish() : [];
   const pipeline = preparePipeline();
+  const agyBrainDir = join(HOME, '.gemini', 'antigravity-cli', 'brain');
+  const agyBrain = process.env.HABBLAUD_ANTIGRAVITY?.trim() === '0' || !statOk(agyBrainDir) ? undefined : agyBrainDir;
+  if (agyBrain) say(tr('Antigravity: monta {0} (as conversas, para o terminal), somente leitura.', [tildify(agyBrain)]));
   if (pipeline) say(tr('Salas por funcionalidade: monta tarefas/ e config/local.json de {0}, somente leitura.', [tildify(pipeline.dir)]));
   const tmp = `${OVERRIDE_FILE}.tmp`;
-  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, pipeline), { mode: 0o600 });
+  writeFileSync(tmp, renderOverride(mounts, new Date(), usageDir, hostTimeZone(), codexMounts, remoteTlsDir, remotePorts, pipeline, agyBrain), { mode: 0o600 });
   chmodSync(tmp, 0o600);
   renameSync(tmp, OVERRIDE_FILE);
   say(tr('docker-compose.override.yml gerado.'));

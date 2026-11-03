@@ -15,7 +15,7 @@ export const PROVIDER_NAME: Record<Provider, string> = { claude: 'Claude Code', 
  * têm conversa para ele ler.
  */
 export function hasTerminal(provider: Provider): boolean {
-  return provider === 'claude' || provider === 'codex';
+  return provider === 'claude' || provider === 'codex' || provider === 'antigravity';
 }
 
 /** Por que o terminal não abre para um agente desta ferramenta. */

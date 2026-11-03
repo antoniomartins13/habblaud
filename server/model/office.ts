@@ -1138,6 +1138,15 @@ export class Office {
     this.markDirty();
   }
 
+  /** Fase do runner do pipeline de um agente cuja fonte não tem resumo de transcript (o agy). */
+  setPipelinePhase(id: string, phase: AgentInfo['pipelinePhase']): void {
+    const info = this.agents.get(id)?.info;
+    if (!info || info.pipelinePhase === phase) return;
+    if (phase) info.pipelinePhase = phase;
+    else delete info.pipelinePhase;
+    this.markDirty();
+  }
+
   /** Um nome de sala mudou (renomear): recalcula e transmite. */
   refreshRoomNames(): void {
     this.recomputeRoomNames();
