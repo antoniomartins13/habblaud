@@ -7,7 +7,7 @@
 // passada do modelo e a próxima vêm PostInvocation e logo PreInvocation: não é ocioso); Stop (com fullyIdle) = ocioso.
 // Atividade: o nome da ferramenta + o texto curto que o hook mandou (nunca o resto dos args nem a saída).
 import { existsSync } from 'node:fs';
-import { agyPipelinePhase, agyTranscriptPath, createAgyTerminalParser } from './terminal';
+import { agyPipelinePhase, agyTranscriptPath, createAgyTerminalParser, scanAgyUsage, type AgyUsage } from './terminal';
 import type { TerminalParser } from '../terminal';
 import { readFileSync, statSync } from 'node:fs';
 import type { AgentStatus, SourceInfo } from '../../../shared/types';
@@ -59,6 +59,9 @@ interface Tracker {
   lastActivityId?: string;
   /** Leituras do transcript à procura da fase do runner (o arquivo pode ainda não existir no primeiro evento). */
   phaseTries?: number;
+  /** Consumo somado do transcript (leitura incremental) e quando foi lido. */
+  usage?: AgyUsage;
+  usageAt?: number;
 }
 
 /** Primeira letra de atalho livre (não repete as das outras contas). */
@@ -191,6 +194,7 @@ export class AntigravitySource implements AgentSource, AntigravityLive {
     }
     t.lastEventAt = now;
     this.readPhase(t);
+    this.readConsumption(t, now);
 
     switch (event.event) {
       case 'Stop':
@@ -226,6 +230,18 @@ export class AntigravitySource implements AgentSource, AntigravityLive {
       t.status = status;
       this.readPhase(t);
     }
+  }
+
+  /** Consumo (tokens e modelo) do transcript, no máximo a cada 5 s, lendo só o que entrou desde a última vez. */
+  private readConsumption(t: Tracker, now: number): void {
+    if (t.usageAt !== undefined && now - t.usageAt < 5_000) return;
+    t.usageAt = now;
+    const path = this.transcriptPathOf(t.key);
+    if (!path) return;
+    const before = t.usage;
+    t.usage = scanAgyUsage(path, t.usage);
+    if (before && before.tokensIn === t.usage.tokensIn && before.tokensOut === t.usage.tokensOut && before.model === t.usage.model) return;
+    this.opts.office.setUsage(t.key, { tokensIn: t.usage.tokensIn, tokensOut: t.usage.tokensOut, model: t.usage.model });
   }
 
   /** Sessão do runner do pipeline: a fase vem do primeiro pedido do transcript (até 5 tentativas, uma por evento). */

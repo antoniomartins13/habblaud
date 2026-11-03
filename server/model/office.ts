@@ -1138,6 +1138,15 @@ export class Office {
     this.markDirty();
   }
 
+  /** Consumo de um agente cuja fonte não tem resumo de transcript (o agy): tokens somados e o modelo. */
+  setUsage(id: string, u: { tokensIn: number; tokensOut: number; model?: string }): void {
+    const info = this.agents.get(id)?.info;
+    if (!info) return;
+    info.stats = { ...info.stats, tokensIn: u.tokensIn, tokensOut: u.tokensOut };
+    if (u.model) info.model = u.model;
+    this.markDirty();
+  }
+
   /** Fase do runner do pipeline de um agente cuja fonte não tem resumo de transcript (o agy). */
   setPipelinePhase(id: string, phase: AgentInfo['pipelinePhase']): void {
     const info = this.agents.get(id)?.info;

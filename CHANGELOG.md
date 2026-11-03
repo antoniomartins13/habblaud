@@ -34,6 +34,8 @@ do meio (0.**3**.0).
   o pedido, as respostas, as chamadas de ferramenta e os resultados, lidos do `transcript_full.jsonl` que o agy grava
   em `~/.gemini/antigravity-cli/brain/`. As sessões do runner no agy ganham a etiqueta da fase, como as do Claude. No
   Docker, o `docker:up` monta só a pasta `brain/`, somente leitura (o token de login do agy fica fora dela).
+- **Consumo do Antigravity.** O painel do agente do agy mostra o modelo da sessão e os tokens de entrada e de saída,
+  somados das respostas no transcript (leitura incremental, no máximo a cada 5 s).
 
 ### Corrigido
 

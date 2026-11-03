@@ -2,7 +2,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { tempDir } from '../../test/fixtures';
-import { agyPipelinePhase, agyRequestText, agyTranscriptPath, createAgyTerminalParser } from './terminal';
+import { agyPipelinePhase, agyRequestText, agyTranscriptPath, createAgyTerminalParser, scanAgyUsage } from './terminal';
+import { appendFileSync } from 'node:fs';
 
 const CID = '62706453-37f5-415e-bb56-7009873c94dd';
 const step = (o: Record<string, unknown>) => JSON.stringify({ status: 'DONE', created_at: '2026-11-03T18:29:47Z', ...o });
@@ -61,6 +62,31 @@ describe('terminal do agy', () => {
       writeFileSync(outro, step({ step_index: 0, type: 'USER_INPUT', content: '<USER_REQUEST>Leia a.txt</USER_REQUEST>' }) + '\n');
       expect(agyPipelinePhase(outro)).toBeUndefined();
       expect(agyPipelinePhase(join(t.dir, 'nao-existe.jsonl'))).toBeUndefined();
+    } finally {
+      t.cleanup();
+    }
+  });
+
+  it('consumo: soma tokens das respostas, pega o modelo escolhido e lê só o que é novo', () => {
+    const t = tempDir();
+    try {
+      const path = join(t.dir, 't.jsonl');
+      writeFileSync(
+        path,
+        [
+          step({ step_index: 0, type: 'USER_INPUT', content: '<USER_REQUEST>oi</USER_REQUEST>\n<USER_SETTINGS_CHANGE>\nThe user changed setting `Model Selection` from None to Gemini 4 Argon (Low). No need to mention it.\n</USER_SETTINGS_CHANGE>' }),
+          step({ step_index: 1, type: 'PLANNER_RESPONSE', input_tokens: 1000, cache_read_tokens: 500, output_tokens: 80 }),
+        ].join('\n') + '\n',
+      );
+      const a = scanAgyUsage(path);
+      expect(a).toMatchObject({ tokensIn: 1500, tokensOut: 80, model: 'Gemini 4 Argon (Low)' });
+      // Linha ainda sendo gravada (sem quebra no fim): fica para a próxima leitura.
+      appendFileSync(path, step({ step_index: 2, type: 'PLANNER_RESPONSE', input_tokens: 10, output_tokens: 5 }));
+      const b = scanAgyUsage(path, a);
+      expect(b).toMatchObject({ tokensIn: 1500, tokensOut: 80, offset: a.offset });
+      appendFileSync(path, '\n');
+      expect(scanAgyUsage(path, b)).toMatchObject({ tokensIn: 1510, tokensOut: 85, model: 'Gemini 4 Argon (Low)' });
+      expect(scanAgyUsage(join(t.dir, 'nao-existe'), b)).toBe(b);
     } finally {
       t.cleanup();
     }

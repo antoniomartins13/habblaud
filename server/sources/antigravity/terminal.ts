@@ -162,3 +162,52 @@ export function agyPipelinePhase(path: string, maxBytes = 256 * 1024): PipelineP
     if (fd !== undefined) closeSync(fd);
   }
 }
+
+/** Consumo lido do transcript: tokens das respostas do modelo e o modelo escolhido na sessão. */
+export interface AgyUsage {
+  /** Até onde o arquivo já foi lido (bytes). */
+  offset: number;
+  tokensIn: number;
+  tokensOut: number;
+  model?: string;
+}
+
+/**
+ * Soma o consumo das linhas novas do transcript (a partir de `prev.offset`): input_tokens + cache_read_tokens e
+ * output_tokens de cada PLANNER_RESPONSE, e o modelo da última troca de "Model Selection" que o agy registra no pedido.
+ * Linha cortada no fim fica para a próxima leitura.
+ */
+export function scanAgyUsage(path: string, prev: AgyUsage = { offset: 0, tokensIn: 0, tokensOut: 0 }, maxBytes = 4 * 1024 * 1024): AgyUsage {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, 'r');
+    const buf = Buffer.alloc(maxBytes);
+    const n = readSync(fd, buf, 0, maxBytes, prev.offset);
+    const chunk = buf.subarray(0, n).toString('utf8');
+    const end = chunk.lastIndexOf('\n');
+    if (end < 0) return prev;
+    const next: AgyUsage = { ...prev, offset: prev.offset + Buffer.byteLength(chunk.slice(0, end + 1)) };
+    for (const line of chunk.slice(0, end).split('\n')) {
+      if (!line.trim()) continue;
+      let o: Record<string, unknown>;
+      try {
+        o = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (o.type === 'PLANNER_RESPONSE') {
+        const num = (k: string) => (typeof o[k] === 'number' && Number.isFinite(o[k]) ? (o[k] as number) : 0);
+        next.tokensIn += num('input_tokens') + num('cache_read_tokens');
+        next.tokensOut += num('output_tokens');
+      } else if (o.type === 'USER_INPUT' && typeof o.content === 'string') {
+        const m = /Model Selection`? from .*? to ([^.\n]+)/.exec(o.content);
+        if (m) next.model = m[1]!.trim();
+      }
+    }
+    return next;
+  } catch {
+    return prev;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
