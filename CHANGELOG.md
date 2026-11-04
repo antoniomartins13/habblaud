@@ -39,6 +39,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- A janela de leitura (Spec, Roteiro, Revisão…) não desfoca mais o escritório por trás: com ela aberta, o navegador ficava lento.
 - O escritório desenha no máximo 24 quadros por segundo: a aba do Habblaud deixava o processo de GPU do Chrome em 100% de CPU.
 - **Acesso pelo celular: `npm run remote:setup` no Linux com `/tmp` em tmpfs.** A chave da CA e o certificado eram
   gerados em `/tmp` e movidos com `rename` para `~/.habblaud/remote-tls`, o que falha entre sistemas de arquivos

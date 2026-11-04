@@ -11275,6 +11275,11 @@ html.is-replay #world {
 /* Janela flutuante de leitura de Spec / Plano (mesma base do terminal + responsiva no celular). */
 .ui-pipe-doc {
   z-index: 45;
+  /* Janela grande de leitura: sem o desfoque do .ui-term, que era refeito a cada quadro do escritório por baixo e
+     travava o navegador (pior ainda sem aceleração de hardware). Fundo opaco no lugar. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--ui-bg-solid);
   --term-w: min(960px, 78vw, max(600px, calc(100vw - var(--free-left) - var(--free-right) - 16px)));
   --term-h: min(82vh, calc(100vh - var(--top-h) - var(--gap) * 2));
 }
