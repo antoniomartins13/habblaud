@@ -7,6 +7,8 @@
 // - _pipeline/tarefas/<tarefa>/…       → sala da entrega da tarefa (task.json)
 // - _pipeline/tarefas/<entrega>/…      → sala da entrega (a pasta tem o nome de uma entrega conhecida)
 // - <worktree da tarefa>/…             → sala da entrega (config/local.json: repo do task.json → pasta), só sob _wt/
+// - _pipeline/.local/runs/<tarefa>/…   → sala da entrega (o agy registra a sessão na 1ª pasta extra do runner)
+// - tarefa sem entrega: worktree, runs e pasta em tarefas/ caem na sala da pasta da tarefa
 // - _pipeline/tarefas/mr-<N>-…/…       → sala "MR !<N>"
 // - _review-wt/<x>_mr<N>[_rK]/…        → sala "MR !<N>"; os checkouts sem número vão para "Revisões"
 //
@@ -47,6 +49,9 @@ interface Index {
   tasksOf: Map<string, string[]>;
   /** Worktree (relativo à workspace, normalizado) → entrega. */
   worktreeEntrega: Map<string, string>;
+  /** Tarefas sem entrega (com task.json) e o worktree de cada uma (relativo à workspace) → tarefa. */
+  soloTasks: Set<string>;
+  worktreeTask: Map<string, string>;
   /** Número do MR → pasta em tarefas/ (mr-<N>-…). */
   mrDir: Map<string, string>;
 }
@@ -94,12 +99,29 @@ export class PipelineRoomGroups {
       return entrega ? this.entregaGroup(entrega, idx) : undefined;
     }
 
+    if (seg[0] === posix.basename(this.dir) && seg[1] === '.local' && seg[2] === 'runs' && seg[3]) {
+      return this.taskGroup(seg[3], idx);
+    }
+
     // Worktree de tarefa: o mais longo que contém o cwd (um worktree pode estar dentro de outro repo).
     let best: string | undefined;
     for (const wt of idx.worktreeEntrega.keys()) {
       if ((rel === wt || rel.startsWith(`${wt}/`)) && (!best || wt.length > best.length)) best = wt;
     }
-    return best ? this.entregaGroup(idx.worktreeEntrega.get(best)!, idx) : undefined;
+    if (best) return this.entregaGroup(idx.worktreeEntrega.get(best)!, idx);
+    for (const wt of idx.worktreeTask.keys()) {
+      if ((rel === wt || rel.startsWith(`${wt}/`)) && (!best || wt.length > best.length)) best = wt;
+    }
+    return best ? this.taskGroup(idx.worktreeTask.get(best)!, idx) : undefined;
+  }
+
+  /** Sala de uma tarefa: a da entrega dela; sem entrega, a da pasta dela em tarefas/ (onde ficam as pendências). */
+  private taskGroup(task: string, idx: Index): RoomGroup | undefined {
+    const entrega = idx.entregaOf.get(task);
+    if (entrega) return this.entregaGroup(entrega, idx);
+    if (!idx.soloTasks.has(task)) return undefined;
+    const path = join(this.dir, 'tarefas', task);
+    return { id: normalizeCwd(path), name: task, path };
   }
 
   /** A sala onde as pendências de uma tarefa aparecem: a da entrega, a do MR ou a pasta da própria tarefa. */
@@ -136,7 +158,7 @@ export class PipelineRoomGroups {
     const now = this.now();
     if (this.index && now - this.loadedAt < RESCAN_MS) return this.index;
     this.loadedAt = now;
-    const idx: Index = { entregaOf: new Map(), tasksOf: new Map(), worktreeEntrega: new Map(), mrDir: new Map() };
+    const idx: Index = { entregaOf: new Map(), tasksOf: new Map(), worktreeEntrega: new Map(), soloTasks: new Set(), worktreeTask: new Map(), mrDir: new Map() };
     const repos = this.readRepos();
     const tarefas = join(this.readDir, 'tarefas');
     let names: string[] = [];
@@ -151,6 +173,15 @@ export class PipelineRoomGroups {
       const mr = /^mr-(\d+)(?:-|$)/i.exec(name);
       if (mr && !idx.mrDir.has(mr[1]!)) idx.mrDir.set(mr[1]!, name);
       const task = this.readTask(join(tarefas, name, 'task.json'));
+      if (task && !task.entrega) {
+        idx.soloTasks.add(name);
+        const wt = task.repo ? repos.get(task.repo) : undefined;
+        if (wt && wt.split('/').includes('_wt')) {
+          if (idx.worktreeTask.has(wt)) ambiguous.add(wt);
+          idx.worktreeTask.set(wt, name);
+        }
+        continue;
+      }
       if (!task?.entrega) continue;
       idx.entregaOf.set(name, task.entrega);
       idx.tasksOf.set(task.entrega, [...(idx.tasksOf.get(task.entrega) ?? []), name]);
@@ -160,7 +191,12 @@ export class PipelineRoomGroups {
       if (prev && prev !== task.entrega) ambiguous.add(wt);
       idx.worktreeEntrega.set(wt, task.entrega);
     }
-    for (const wt of ambiguous) idx.worktreeEntrega.delete(wt);
+    for (const wt of ambiguous) {
+      idx.worktreeEntrega.delete(wt);
+      idx.worktreeTask.delete(wt);
+    }
+    // Worktree que também é de uma entrega fica com a entrega.
+    for (const wt of idx.worktreeEntrega.keys()) idx.worktreeTask.delete(wt);
     this.index = idx;
     return idx;
   }

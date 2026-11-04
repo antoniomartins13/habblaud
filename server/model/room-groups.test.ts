@@ -27,6 +27,7 @@ function workspace(root: string) {
         'erp-front-end-aj3': '../_wt/aj3-front',
         'erp-back-end-imp2': '../_wt/importacoes-2-back',
         'erp-back-end-x': '../_wt/compartilhado',
+        'erp-back-end-3960': '../_wt/3960-testes-back',
         'erp-front-end-y': '../_wt/compartilhado',
       },
     }),
@@ -39,6 +40,7 @@ function workspace(root: string) {
   task('x', { repo: 'erp-back-end-x', entrega: 'ex' });
   task('y', { repo: 'erp-front-end-y', entrega: 'ey' });
   task('sem-entrega', { repo: 'erp-back-end' });
+  task('processo-adm-3960-testes', { repo: 'erp-back-end-3960' });
   task('mr-596-471-home-3954', null);
   task('balancete-mensal', null);
   return { ws, pipeline, task };
@@ -85,6 +87,22 @@ describe('PipelineRoomGroups', () => {
     const want = { id: `${GROUP_ROOM_PREFIX}revisoes`, name: 'Revisões', path: join(ws, '_review-wt') };
     expect(groups.group(join(ws, '_review-wt/be_acl591'))).toEqual(want);
     expect(groups.group(join(ws, '_review-wt/fe_acl465'))).toEqual(want);
+  });
+
+  it('sessões do agy (registradas em .local/runs/<tarefa>) caem na sala da entrega da tarefa', () => {
+    const want = { id: `${GROUP_ROOM_PREFIX}entrega:transparencia-ajustes-3`, name: 'transparencia-ajustes-3', path: join(pipeline, 'tarefas', 'transparencia-ajustes-3') };
+    expect(groups.group(join(pipeline, '.local/runs/aj3-back'))).toEqual(want);
+    expect(groups.group(join(pipeline, '.local/runs/aj3-front/20261104-074231-039c44fb'))).toEqual(want);
+    expect(groups.group(join(pipeline, '.local/runs/desconhecida'))).toBeUndefined();
+    expect(groups.group(join(pipeline, '.local/runs'))).toBeUndefined();
+  });
+
+  it('tarefa sem entrega: worktree e runs vão para a sala da pasta da tarefa (a das pendências)', () => {
+    const path = join(pipeline, 'tarefas', 'processo-adm-3960-testes');
+    const want = { id: path, name: 'processo-adm-3960-testes', path };
+    expect(groups.group(join(ws, '_wt/3960-testes-back/tests'))).toEqual(want);
+    expect(groups.group(join(pipeline, '.local/runs/processo-adm-3960-testes'))).toEqual(want);
+    expect(groups.roomForTask('processo-adm-3960-testes')).toBe(want.id);
   });
 
   it('sem regra, a sala continua a pasta', () => {
