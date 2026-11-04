@@ -178,24 +178,4 @@ describe('Office: pendências do runner', () => {
       { task: 'a-back', kind: 'cp1', entrega: 'ent-a', hash: 'ccecccfb8b', command: 'APROVAR CP1 ent-a ccecccfb8b' },
     ]);
   });
-  it('funcionalidade que espera o usuário ganha sala mesmo sem sessão nela, e a sala some quando a pendência acaba', () => {
-    const office = new Office({
-      names: new NameStore(null),
-      pendingRoom: (p) => `pipeline:entrega:${p.entrega}`,
-      pendingRoomGroup: (p) => ({ id: `pipeline:entrega:${p.entrega}`, name: p.entrega!, path: `/w/_pipeline/tarefas/${p.entrega}` }),
-      version: 't',
-      startedAt: 0,
-      accounts: () => [],
-      sources: () => [],
-      accountName: () => undefined,
-      now: () => 1_000,
-    });
-    office.setPipelinePending([{ task: 'aj3-back', kind: 'draft', entrega: 'ent-3', links: [{ label: 'back', url: 'https://x.ts.net:18015/' }] }]);
-    const room = office.commit().snapshot.rooms.find((r) => r.id === 'pipeline:entrega:ent-3');
-    expect(room?.name).toBe('ent-3');
-    expect(room?.path).toBe('/w/_pipeline/tarefas/ent-3');
-    expect(room?.pending?.[0]?.links).toEqual([{ label: 'back', url: 'https://x.ts.net:18015/' }]);
-    office.setPipelinePending([]);
-    expect(office.commit().snapshot.rooms.find((r) => r.id === 'pipeline:entrega:ent-3')).toBeUndefined();
-  });
 });

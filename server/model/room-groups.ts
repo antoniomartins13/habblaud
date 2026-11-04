@@ -132,16 +132,6 @@ export class PipelineRoomGroups {
     return normalizeCwd(join(this.dir, 'tarefas', task));
   }
 
-  /** A sala das pendências de uma tarefa com nome e pasta: aparece mesmo sem ninguém trabalhando nela. */
-  groupForTask(task: string, entrega?: string): RoomGroup {
-    const idx = this.load();
-    const mr = /^mr-(\d+)(?:-|$)/i.exec(task);
-    if (mr) return this.mrGroup(mr[1]!, idx);
-    if (entrega) return this.entregaGroup(entrega, idx);
-    const path = join(this.dir, 'tarefas', task);
-    return { id: normalizeCwd(path), name: task, path };
-  }
-
   private entregaGroup(entrega: string, idx: Index): RoomGroup {
     const tarefas = join(this.dir, 'tarefas');
     const own = join(tarefas, entrega);

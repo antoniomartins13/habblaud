@@ -64,8 +64,6 @@ export interface OfficeDeps {
   stop?: () => boolean;
   /** Sala onde aparece cada pendência do runner (PipelineRoomGroups.roomForTask). */
   pendingRoom?: (p: PipelinePending) => string;
-  /** Nome e pasta da sala de uma pendência: com ela, a funcionalidade que espera o usuário ganha sala própria. */
-  pendingRoomGroup?: (p: PipelinePending) => { id: string; name: string; path: string } | undefined;
   version: string;
   /** Build do cliente servido (ver OfficeSnapshot.meta.build); ausente no modo dev e nos testes. */
   build?: () => string | undefined;
@@ -217,8 +215,6 @@ export class Office {
   private rooms = new Map<string, { path: string; createdAt: number; name?: string }>();
   /** O que o runner do pipeline espera do usuário (setPipelinePending). */
   private pending: PipelinePending[] = [];
-  /** Quando cada sala aberta só por pendência apareceu (ordem estável no prédio). */
-  private pendingRoomSince = new Map<string, number>();
   private pendingSeen = false;
   private slots = new SlotAllocator(SLOT_COOLDOWN_MS);
   private roomNames = new Map<string, string>();
@@ -999,22 +995,11 @@ export class Office {
     const now = this.now();
     const entries = new Map(this.rooms);
     for (const r of this.demoSnap?.rooms ?? []) entries.set(r.id, { path: r.path, createdAt: r.createdAt });
-    // Funcionalidade que espera o usuário (CP1, recuperar, concluir) ganha sala mesmo sem sessão nela: é lá que ficam
-    // os botões, os servidores de revisão, os MRs e o roteiro.
-    const pendingNames = new Map<string, string>();
-    for (const p of this.pending) {
-      const g = this.deps.pendingRoomGroup?.(p);
-      if (!g || entries.has(g.id)) continue;
-      if (!this.pendingRoomSince.has(g.id)) this.pendingRoomSince.set(g.id, now);
-      entries.set(g.id, { path: g.path, createdAt: this.pendingRoomSince.get(g.id)! });
-      pendingNames.set(g.id, g.name);
-    }
-    for (const id of this.pendingRoomSince.keys()) if (!pendingNames.has(id) && !this.rooms.has(id)) this.pendingRoomSince.delete(id);
     this.slots.sync(entries.keys(), now);
     const rooms: RoomInfo[] = [...entries]
       .map(([id, r]) => ({
         id,
-        name: pendingNames.get(id) ?? this.roomName(id),
+        name: this.roomName(id),
         path: r.path,
         slot: this.slots.slotOf(id) ?? 0,
         seed: hash32(id),
