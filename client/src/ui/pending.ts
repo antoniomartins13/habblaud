@@ -8,7 +8,7 @@ import { ICONS } from './icons';
 import { renderMarkdown } from './markdown';
 import { maximizeButton, Movable } from './movable';
 
-export type PipelineDocKind = 'spec' | 'plan' | 'review' | 'docs';
+export type PipelineDocKind = 'spec' | 'plan' | 'review' | 'docs' | 'roteiro';
 
 export interface PendingItemsOptions {
   /** Sessão interativa do usuário (Claude Code) que recebe o comando; ausente = console fechado. */
@@ -241,6 +241,7 @@ const DOC_DEFAULT_NAME: Record<PipelineDocKind, string> = {
   review: 'review-report.md',
   docs: 'documentacao-tecnica.md',
   plan: 'plan.md',
+  roteiro: 'roteiro-teste.md',
 };
 
 class PipelineDocModal {
@@ -292,6 +293,13 @@ class PipelineDocModal {
         text: tr('Plano'),
         title: tr('Ler planos técnicos gerados pelos runners (plan.md)'),
       }),
+      roteiro: h('button', {
+        class: 'ui-seg__opt ui-pipe-doc__tab',
+        type: 'button',
+        role: 'tab',
+        text: tr('Roteiro'),
+        title: tr('Ler o roteiro de teste manual, com os links do servidor de revisão e dos MRs (roteiro-teste.md)'),
+      }),
     };
     const tabs = h(
       'div',
@@ -300,6 +308,7 @@ class PipelineDocModal {
       this.tabButtons.review,
       this.tabButtons.docs,
       this.tabButtons.plan,
+      this.tabButtons.roteiro,
     );
 
     const copyDocBtn = copyButton(() => this.rawContent, tr('Copiar texto do documento'));
@@ -382,7 +391,7 @@ class PipelineDocModal {
       this.currentTask = '';
       void this.open(p, next, opts);
     };
-    for (const k of ['spec', 'review', 'docs', 'plan'] as const) {
+    for (const k of ['spec', 'review', 'docs', 'plan', 'roteiro'] as const) {
       const b = this.tabButtons[k];
       b.onclick = () => switchDoc(k);
       b.classList.toggle('is-active', doc === k);
@@ -552,6 +561,13 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
       text: tr('Revisão'),
       title: tr('Abrir parecer de revisão (review-report.md) de {0}', [target]),
     });
+    const roteiroBtn = h('button', {
+      class: 'ui-btn ui-btn--xs ui-pending__doc-btn',
+      type: 'button',
+      text: tr('Roteiro'),
+      title: tr('Abrir o roteiro de teste (roteiro-teste.md) de {0}', [target]),
+    });
+    roteiroBtn.addEventListener('click', () => void getDocModal().open(p, 'roteiro', opts));
     specBtn.addEventListener('click', () => void getDocModal().open(p, 'spec', opts));
     planBtn.addEventListener('click', () => void getDocModal().open(p, 'plan', opts));
     reviewBtn.addEventListener('click', () => void getDocModal().open(p, 'review', opts));
@@ -564,7 +580,12 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
     const actionButtons = buildActionButtonsForPending(p, feedback, opts, () => {
       void getDocModal().open(p, 'review', opts, true);
     });
-    const docButtons = p.kind === 'draft' || p.kind === 'blocked' ? [specBtn, planBtn, reviewBtn] : [specBtn, planBtn];
+    const docButtons =
+      p.kind === 'draft' ? [roteiroBtn, specBtn, planBtn, reviewBtn] : p.kind === 'blocked' ? [specBtn, planBtn, reviewBtn] : [specBtn, planBtn];
+    // Servidores de revisão e MRs (só https, validados no servidor): abrem em aba nova, sem acesso de volta.
+    const links = (p.links ?? []).map((l) =>
+      h('a', { class: 'ui-btn ui-btn--xs ui-pending__link', text: l.label, attrs: { href: l.url, target: '_blank', rel: 'noopener noreferrer' } }),
+    );
 
     return h(
       'li',
@@ -576,6 +597,7 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
         h('span', { class: 'ui-pending__docs' }, ...docButtons),
       ),
       ...(p.reason ? [h('span', { class: 'ui-pending__reason', text: p.reason })] : []),
+      ...(links.length ? [h('span', { class: 'ui-pending__links' }, ...links)] : []),
       ...(cmd
         ? [
             h(

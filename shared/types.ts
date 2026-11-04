@@ -237,6 +237,13 @@ export interface PipelinePending {
   reason?: string;
   since?: number;
   command?: string;
+  /** "A concluir": servidores de revisão e MRs em draft (só https), do ambiente que o runner preparou. */
+  links?: PipelineLink[];
+}
+
+export interface PipelineLink {
+  label: string;
+  url: string;
 }
 
 /**

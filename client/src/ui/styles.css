@@ -11257,6 +11257,8 @@ html.is-replay #world {
 .ui-pending__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; }
 .ui-pending__what { font-weight: 600; }
 .ui-pending__docs { display: inline-flex; gap: 4px; }
+.ui-pending__links { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.ui-pending__link { text-decoration: none; }
 .ui-pending__doc-btn.is-active { background: rgba(240, 180, 41, 0.28); border-color: #f0b429; }
 .ui-pending__reason { color: var(--ui-muted, #8b98b3); }
 .ui-pending__cmd { flex-wrap: wrap; gap: 4px; }

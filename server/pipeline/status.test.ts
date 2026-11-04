@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
-import { parsePending, pendingCommand, PIPELINE_STALE_MS, PipelineStatus, readPipelineDoc, readPipelinePending } from './status';
+import { parsePending, pendingCommand, PIPELINE_STALE_MS, PipelineStatus, readPipelineDoc, readPipelinePending, reviewEnvironmentLinks } from './status';
 
 setQuiet(true);
 
@@ -53,6 +53,43 @@ describe('readPipelinePending (auxiliar do host)', () => {
 
   it('sem .local/tasks, nada (e nada lança)', async () => {
     expect(await readPipelinePending({ dir: DIR, ...fs({}) })).toEqual([]);
+  });
+});
+
+describe('ambiente de revisão na pendência "a concluir"', () => {
+  const info = {
+    tarefas: [
+      { task: 'aj3-back', kind: 'back', servidor: { url: 'https://pc.tail.ts.net:18015' }, mr: { url: 'https://git.x/back/-/merge_requests/616', iid: 616 } },
+      { task: 'aj3-front', kind: 'front', servidor: { erro: 'porta ocupada' }, mr: { url: 'javascript:alert(1)' } },
+    ],
+    migrations: ['aj3-back: m1.php', 'aj3-back: m2.php'],
+  };
+
+  it('servidores e MRs viram links (só https) e a nota conta migrations e erros', () => {
+    expect(reviewEnvironmentLinks(info)).toEqual({
+      links: [
+        { label: 'back', url: 'https://pc.tail.ts.net:18015/' },
+        { label: 'MR back !616', url: 'https://git.x/back/-/merge_requests/616' },
+      ],
+      note: '2 migration(s) a aprovar antes de testar (ver Roteiro) · 1 repositório(s) com erro no ambiente (ver Roteiro)',
+    });
+    expect(reviewEnvironmentLinks({ ...info, encerrado_em: 'x' })).toEqual({ links: [] });
+    expect(reviewEnvironmentLinks(undefined)).toEqual({ links: [] });
+  });
+
+  it('o auxiliar lê o ambiente da entrega e o servidor recusa link que não é https', async () => {
+    const pending = await readPipelinePending({
+      dir: DIR,
+      ...fs({
+        [`${DIR}/.local/tasks/aj3-back/state.json`]: { phase: 'ready_for_draft' },
+        [`${DIR}/tarefas/aj3-back/task.json`]: { entrega: 'ent' },
+        [`${DIR}/.local/ambientes/ent.json`]: info,
+      }),
+    });
+    expect(pending[0]?.links).toHaveLength(2);
+    expect(parsePending({ task: 'x', kind: 'draft', links: [{ label: 'a', url: 'http://inseguro' }, { label: 'b', url: 'https://ok.ts.net' }] })?.links).toEqual([
+      { label: 'b', url: 'https://ok.ts.net/' },
+    ]);
   });
 });
 

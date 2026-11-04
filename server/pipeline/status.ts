@@ -6,13 +6,14 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PipelinePending } from '../../shared/types';
+import type { PipelineLink, PipelinePending } from '../../shared/types';
 
 /** Uma foto vale por este tempo: auxiliar parado = ninguém sabe mais o estado. */
 export const PIPELINE_STALE_MS = 3 * 60_000;
 const TASK_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const HASH = /^[0-9a-f]{8,64}$/;
 const TEXT_MAX = 240;
+const LINKS_MAX = 12;
 
 export class PipelineStatus {
   private items: PipelinePending[] = [];
@@ -61,7 +62,43 @@ export function parsePending(raw: unknown): PipelinePending | undefined {
   if (reason) p.reason = reason;
   const since = r?.since;
   if (typeof since === 'number' && Number.isFinite(since)) p.since = since;
+  const links = Array.isArray(r?.links) ? r.links.map(parseLink).filter((l): l is PipelineLink => !!l).slice(0, LINKS_MAX) : [];
+  if (links.length) p.links = links;
   return p;
+}
+
+/** Só https (nada de javascript:, file: ou http em claro), com rótulo curto. */
+function parseLink(raw: unknown): PipelineLink | undefined {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined;
+  const label = str(r?.label, 60);
+  const url = str(r?.url, 400);
+  if (!label || !url) return undefined;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' ? { label, url: u.href } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Links do ambiente de revisão (`.local/ambientes/<alvo>.json`, gravado por scripts/ambiente_revisao.py). */
+export function reviewEnvironmentLinks(info: Record<string, unknown> | undefined): { links: PipelineLink[]; note?: string } {
+  const links: PipelineLink[] = [];
+  if (!info || info.encerrado_em) return { links };
+  const tarefas = Array.isArray(info.tarefas) ? (info.tarefas as Record<string, unknown>[]) : [];
+  for (const t of tarefas) {
+    const kind = typeof t.kind === 'string' ? t.kind : String(t.task ?? '');
+    const srv = t.servidor as Record<string, unknown> | undefined;
+    const mr = t.mr as Record<string, unknown> | undefined;
+    if (typeof srv?.url === 'string') links.push({ label: kind, url: srv.url });
+    if (typeof mr?.url === 'string') links.push({ label: `MR ${kind}${typeof mr.iid === 'number' ? ` !${mr.iid}` : ''}`, url: mr.url });
+  }
+  const notes: string[] = [];
+  const migrations = Array.isArray(info.migrations) ? info.migrations.length : 0;
+  if (migrations) notes.push(`${migrations} migration(s) a aprovar antes de testar (ver Roteiro)`);
+  const erros = tarefas.filter((t) => (t.mr as { erro?: unknown } | undefined)?.erro || (t.servidor as { erro?: unknown } | undefined)?.erro).length;
+  if (erros) notes.push(`${erros} repositório(s) com erro no ambiente (ver Roteiro)`);
+  return { links: links.map(parseLink).filter((l): l is PipelineLink => !!l), note: notes.join(' · ') || undefined };
 }
 
 /** Consolida sub-tarefas da mesma funcionalidade (`entrega`) e mesmo tipo (`kind`) em um único item. */
@@ -84,9 +121,14 @@ export function groupPendingByEntrega(items: readonly PipelinePending[]): Pipeli
       existing.tasks.push(p.task);
       if (p.reason) existing.reasons.push(`${p.task}: ${p.reason}`);
       if (!existing.item.hash && p.hash) existing.item.hash = p.hash;
+      if (!existing.item.links && p.links) existing.item.links = p.links;
     }
   }
   for (const { item, tasks, reasons } of byKey.values()) {
+    // Mesma nota em todas (ex.: a do ambiente de revisão, que é da entrega): uma vez só.
+    if (tasks.length > 1 && reasons.length && new Set(reasons.map((r) => r.slice(r.indexOf(': ') + 2))).size === 1 && item.kind === 'draft') {
+      continue;
+    }
     if (tasks.length > 1 && reasons.length) {
       item.reason = reasons.join(' · ').slice(0, TEXT_MAX);
     }
@@ -107,17 +149,18 @@ export function pendingCommand(p: PipelinePending): string | undefined {
   return undefined;
 }
 
-export type PipelineDocKind = 'spec' | 'plan' | 'review' | 'docs';
+export type PipelineDocKind = 'spec' | 'plan' | 'review' | 'docs' | 'roteiro';
 const DOC_MAX_BYTES = 256 * 1024;
 const DOC_FILES: Record<PipelineDocKind, string> = {
   spec: 'task-spec.md',
   plan: 'plan.md',
   review: 'review-report.md',
   docs: 'documentacao-tecnica.md',
+  roteiro: 'roteiro-teste.md',
 };
 
 function isDocKind(d: string): d is PipelineDocKind {
-  return d === 'spec' || d === 'plan' || d === 'review' || d === 'docs';
+  return d === 'spec' || d === 'plan' || d === 'review' || d === 'docs' || d === 'roteiro';
 }
 
 /**
@@ -240,6 +283,11 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
     if (kind === 'blocked') {
       const why = [typeof st?.blocked_phase === 'string' ? st.blocked_phase : '', typeof st?.reason === 'string' ? st.reason : ''].filter(Boolean).join(': ');
       if (why) p.reason = why.slice(0, TEXT_MAX);
+    }
+    if (kind === 'draft') {
+      const env = reviewEnvironmentLinks(readJson(join(deps.dir, '.local', 'ambientes', `${entrega ?? task}.json`), readFile));
+      if (env.links.length) p.links = env.links;
+      if (env.note) p.reason = env.note;
     }
     if ((kind === 'cp1' || kind === 'prototype') && deps.gate) {
       const target = entrega ?? task;
