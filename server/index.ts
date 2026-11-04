@@ -128,6 +128,7 @@ const office = new Office({
   // Criado mais abaixo (depende da liberação do terminal): só é chamado depois do boot.
   stop: () => stop?.available() === true,
   pendingRoom: roomGroups ? (p) => roomGroups.roomForTask(p.task, p.entrega) : undefined,
+  pendingRoomGroup: roomGroups ? (p) => roomGroups.groupForTask(p.task, p.entrega) : undefined,
   version: config.version,
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
