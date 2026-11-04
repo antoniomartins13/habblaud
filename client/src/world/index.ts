@@ -23,6 +23,8 @@ export * from './api';
 export type { WorldDebug } from './debug';
 
 const art: ArtModule = artModule;
+/** Teto de quadros do escritório (ms por quadro). */
+const FRAME_MS = 1000 / 24;
 
 /** O que a cena Visita usa do mundo dela (createWorld com `visit: true`). */
 export interface VisitWorld {
@@ -273,6 +275,8 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
 
   const loop = (ts: number) => {
     raf = requestAnimationFrame(loop);
+    // Pixel art não precisa de 60+ quadros: a 24 o processo de GPU do Chrome deixa de ficar em 100% (04/11/2026).
+    if (lastTs && ts - lastTs < FRAME_MS - 1) return;
     const real = Date.now();
     const realDt = lastTs ? Math.min(0.1, Math.max(0, (ts - lastTs) / 1000)) : 1 / 60;
     lastTs = ts;
