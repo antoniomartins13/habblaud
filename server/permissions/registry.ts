@@ -85,6 +85,8 @@ export interface RegistryOptions {
   demoDecide?: (id: string, d: PermissionDecision) => boolean;
   /** Detalhe de um pedido fictício do demo (o snapshot já o traz). */
   demoDetail?: (id: string) => PermissionRequestInfo | undefined;
+  /** Notificação de nova permissão (Mattermost, etc). */
+  onNewPermission?: (agentId: string, info: PermissionRequestInfo) => void;
   now?: () => number;
   /** Intervalo do relógio interno (start). */
   tickMs?: number;
@@ -461,6 +463,7 @@ export class PermissionRegistry {
       this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '🔐', text: truncate(tr('Pede permissão: {0}', [desc.text]), 46), detail: view.title, tool: 'PermissionRequest' }, false);
       this.opts.office.noticePermission(target.id, `${desc.text}${by}`);
     }
+    this.opts.onNewPermission?.(target.id, info);
     this.opts.office.markDirty();
     return { id, expiresAt: info.expiresAt + EXPIRY_GRACE_MS };
   }

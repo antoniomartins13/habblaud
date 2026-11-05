@@ -58,6 +58,8 @@ export interface UiContext {
   invalidate(): void;
   /** Abre/fecha um painel (sem argumento: alterna). */
   togglePanel(name: PanelName, open?: boolean): void;
+  /** Abre o diálogo de novo agente apontando para a pasta de uma sala específica. */
+  spawnInRoom?: (folder: string, anchor?: HTMLElement) => void;
   isPanelOpen(name: PanelName): boolean;
   /** Tela estreita: painéis viram gavetas sobrepostas. */
   isNarrow(): boolean;

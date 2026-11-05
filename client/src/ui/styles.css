@@ -1661,6 +1661,28 @@
   flex: none;
 }
 
+.ui-room__add {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+
+.ui-room__add:hover {
+  opacity: 1;
+  background: var(--ui-bg-hover);
+  color: var(--ui-fg);
+}
+
 .ui-room__path {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7770,6 +7792,37 @@ html.is-replay #world {
   color: var(--ui-muted);
 }
 
+.ui-spawn__providers {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ui-spawn__provider-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ui-line);
+  color: var(--ui-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  justify-content: center;
+}
+
+.ui-spawn__provider-btn:hover {
+  background: var(--ui-bg-hover);
+  color: var(--ui-fg);
+}
+
+.ui-spawn__provider-btn.is-on {
+  background: var(--ui-accent-soft);
+  border-color: var(--ui-accent);
+  color: var(--ui-fg);
+  font-weight: 600;
+}
+
 .ui-spawn__prompt {
   resize: vertical;
   min-height: 84px;
@@ -8964,6 +9017,69 @@ html.is-replay #world {
   background: rgba(255, 255, 255, 0.04);
   font: 12px/1.5 var(--font-mono);
   white-space: pre-wrap;
+}
+
+.ui-deliv-viewer__text-wrap {
+  width: 100%;
+  max-width: 900px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.ui-deliv-viewer__rendered {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 24px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  color: var(--ui-fg);
+  font: 14px/1.65 var(--font-ui);
+}
+
+.ui-deliv-viewer__toggle {
+  align-self: flex-end;
+}
+
+.ui-deliv__tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-deliv__tab {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.ui-deliv__tab:hover {
+  background: var(--ui-bg-hover);
+  color: var(--ui-fg);
+}
+
+.ui-deliv__tab.is-on {
+  background: var(--ui-accent-soft);
+  border-color: var(--ui-accent);
+  color: var(--ui-fg);
+  font-weight: 600;
+}
+
+.ui-deliv-card--doc .ui-deliv-card__headline {
+  color: var(--ui-accent);
+  font-family: var(--font-mono);
+  font-size: 13px;
 }
 
 .ui-deliv-viewer__file,

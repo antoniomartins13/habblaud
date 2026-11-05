@@ -230,11 +230,22 @@ export class Sidebar implements UiComponent {
     const tasksText = h('span', { class: 'ui-room__tasks-text' });
     const tasks = h('span', { class: 'ui-room__tasks' }, tasksBar, tasksText);
     const swatch = h('span', { class: 'ui-room__swatch', attrs: { 'aria-hidden': 'true' } });
+    const addBtn = iconButton(
+      ICONS.newAgent,
+      tr('Novo agente nesta sala'),
+      (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const room = this.ctx.store.room(g.room.id) ?? g.room;
+        this.ctx.spawnInRoom?.(room.path || room.id, addBtn);
+      },
+      'ui-room__add',
+    );
     const head = h(
       'button',
       { class: 'ui-room__head', type: 'button' },
       swatch,
-      h('span', { class: 'ui-room__line' }, name, count, pending, accsEl),
+      h('span', { class: 'ui-room__line' }, name, count, pending, accsEl, addBtn),
       path,
       tasks,
     );

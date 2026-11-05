@@ -38,6 +38,7 @@ import { MessageRegistry } from './messages/registry';
 import type { CodexLive } from './sources/codex/live';
 import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
+import { MattermostNotifier, readMattermostConfig } from './notifications/mattermost';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
 import { AntigravitySource } from './sources/antigravity/source';
@@ -242,6 +243,11 @@ const deliveryFiles = deliveries
       },
     })
   : undefined;
+// Notificações para o Mattermost (quando requer atenção humana).
+const mattermostConfig = readMattermostConfig(process.env);
+const mattermost = mattermostConfig.webhookUrl ? new MattermostNotifier(mattermostConfig) : undefined;
+if (mattermost) log.info(tr('Notificações Mattermost ativas (canal {0}).', [mattermostConfig.channel || tr('padrão do webhook')]));
+
 // Linha do tempo do timelapse: grava cada snapshot novo (com throttle) em <dataDir>/timeline.
 const timelineDir = join(config.dataDir, TIMELINE_DIR);
 const timeline = config.timeline ? new TimelineRecorder({ dir: timelineDir }) : undefined;
@@ -258,6 +264,16 @@ const permissions = config.terminal
       codexAccount: (account, codexHome) => codexAccountOf(accounts.entriesOf('codex'), account, codexHome),
       demoDecide: (id, d) => office.decideDemoPermission(id, d),
       demoDetail: (id) => office.demoPermission(id),
+      onNewPermission: (agentId, info) => {
+        const agent = office.get(agentId);
+        mattermost?.notifyPermission({
+          id: info.id,
+          agentName: agent?.name,
+          roomName: agent?.roomId,
+          tool: info.tool,
+          head: info.text || info.title,
+        }).catch(() => {});
+      },
     })
   : undefined;
 late.permissions = permissions;
@@ -382,6 +398,7 @@ const api = createApiHandler({
   sources: () => agents.sources(),
   version: config.version,
   inDocker: config.inDocker,
+  allowedHosts: config.allowedHosts,
   terminal: config.terminal,
   terminals,
   sessions: history,
@@ -393,7 +410,11 @@ const api = createApiHandler({
   stop,
   pipelineStatus: pipelineStatus
     ? (raw) => {
-        if (pipelineStatus.set(raw)) office.setPipelinePending(pipelineStatus.list().map((p) => ({ ...p, command: pendingCommand(p) })));
+        if (pipelineStatus.set(raw)) {
+          const list = pipelineStatus.list().map((p) => ({ ...p, command: pendingCommand(p) }));
+          office.setPipelinePending(list);
+          mattermost?.notifyPending(list).catch(() => {});
+        }
       }
     : undefined,
   pipelineDoc: config.pipelineDir

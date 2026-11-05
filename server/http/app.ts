@@ -12,7 +12,7 @@ import type { CodexLive } from '../sources/codex/live';
 import type { AntigravityLive } from '../sources/antigravity/live';
 import type { OpencodeLive } from '../sources/opencode/live';
 import type { SessionLookup } from '../sources/source';
-import { isJsonContentType, isLoopbackHost } from './guard';
+import { isJsonContentType, isLoopbackHost, hostAllowed } from './guard';
 import type { RemoteFeature } from './remote';
 import { handleSessionsRoute } from './sessions';
 import type { Hub } from './sse';
@@ -101,6 +101,8 @@ export interface ApiDeps {
   antigravityLive?: AntigravityLive;
   /** Libera as perguntas do OpenCode ainda abertas no escritório (cartão) de uma sessão: chamada em question.replied/rejected. */
   releaseOpencodeQuestions?: (sessionId: string) => void;
+  /** Host names explicitamente permitidos em HABBLAUD_ALLOWED_HOSTS (ex: Tailscale do notebook). */
+  allowedHosts?: ReadonlySet<string>;
   /** Renomeia a sala (POST /api/rooms/rename {id, name}; vazio volta ao padrão). Devolve o nome em uso, ou undefined se a sala não existe. */
   renameRoom?: (id: string, name: string) => string | undefined;
   /** Estatísticas do "Meu dia" (GET /api/stats, http/stats.ts). */
@@ -297,8 +299,12 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
    * A trava "pelo próprio computador": na porta local, o Host precisa ser loopback (como antes); na porta remota, só o
    * que HABBLAUD_REMOTE_ALLOW liberar (`feature` ausente = nunca pela porta remota).
    */
-  const trusted = (req: IncomingMessage, feature?: RemoteFeature): boolean =>
-    isRemote(req) ? !!feature && !!deps.remote?.allows(feature) : isLoopbackHost(req.headers.host);
+  const trusted = (req: IncomingMessage, feature?: RemoteFeature): boolean => {
+    if (isRemote(req)) return !!feature && !!deps.remote?.allows(feature);
+    if (isLoopbackHost(req.headers.host)) return true;
+    if (deps.allowedHosts && hostAllowed(req.headers.host, deps.allowedHosts)) return true;
+    return false;
+  };
   const denied = (req: IncomingMessage, localMessage: string): string =>
     isRemote(req) ? tr('não liberado no acesso remoto (veja HABBLAUD_REMOTE_ALLOW)') : localMessage;
 

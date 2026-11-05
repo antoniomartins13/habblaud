@@ -21,6 +21,22 @@ const POLL_MS = 700;
  */
 const WAIT_MS = 90_000;
 const LAST_FOLDER_KEY = 'habblaud.spawn.folder';
+const LAST_PROVIDER_KEY = 'habblaud.spawn.provider';
+
+function readProviderPref(): 'claude' | 'agy' {
+  try {
+    const v = localStorage.getItem(LAST_PROVIDER_KEY);
+    return v === 'claude' ? 'claude' : 'agy';
+  } catch {
+    return 'agy';
+  }
+}
+
+function writeProviderPref(p: 'claude' | 'agy'): void {
+  try {
+    localStorage.setItem(LAST_PROVIDER_KEY, p);
+  } catch {}
+}
 
 interface SpawnInfo {
   id: string;
@@ -131,6 +147,7 @@ export class SpawnPanel {
   private selected = '';
   private typing = false;
   private files: PendingFile[] = [];
+  private provider: 'claude' | 'agy' = readProviderPref();
 
   constructor(private readonly ctx: UiContext) {
     this.folderList = h('div', { class: 'ui-spawn__folders', role: 'radiogroup', attrs: { 'aria-label': tr('Projetos recentes') } });
@@ -141,6 +158,33 @@ export class SpawnPanel {
       hidden: true,
       attrs: { id: 'ui-spawn-folder', placeholder: '/Users/voce/projeto', spellcheck: 'false', autocomplete: 'off', autocapitalize: 'none', 'aria-label': tr('Caminho da pasta') },
     });
+    const agyBtn = h('button', {
+      class: `ui-btn ui-spawn__provider-btn${this.provider === 'agy' ? ' is-on' : ''}`,
+      type: 'button',
+      text: 'Antigravity (agy)',
+      on: {
+        click: () => {
+          this.provider = 'agy';
+          writeProviderPref('agy');
+          agyBtn.classList.add('is-on');
+          claudeBtn.classList.remove('is-on');
+        },
+      },
+    });
+    const claudeBtn = h('button', {
+      class: `ui-btn ui-spawn__provider-btn${this.provider === 'claude' ? ' is-on' : ''}`,
+      type: 'button',
+      text: 'Claude Code',
+      on: {
+        click: () => {
+          this.provider = 'claude';
+          writeProviderPref('claude');
+          claudeBtn.classList.add('is-on');
+          agyBtn.classList.remove('is-on');
+        },
+      },
+    });
+    const providerRow = h('div', { class: 'ui-spawn__providers', role: 'group', attrs: { 'aria-label': tr('Provedor') } }, agyBtn, claudeBtn);
     this.prompt = h('textarea', {
       class: 'ui-rename__input ui-spawn__prompt',
       attrs: { id: 'ui-spawn-prompt', rows: 5, maxlength: SPAWN_PROMPT_MAX, placeholder: tr('O que o agente deve fazer (opcional)') },
@@ -192,11 +236,13 @@ export class SpawnPanel {
         this.folderList,
         this.otherBtn,
         this.folder,
+        h('p', { class: 'ui-spawn__label' }, tr('Provedor')),
+        providerRow,
         h('label', { class: 'ui-spawn__label', attrs: { for: 'ui-spawn-prompt' }, text: tr('Pedido') }),
         this.prompt,
         h('div', { class: 'ui-spawn__tools' }, this.dictate.el, attachBtn, this.fileInput),
         this.fileList,
-        h('p', { class: 'ui-rename__hint', text: tr('Começa na hora uma sessão do Claude Code em segundo plano no computador, na pasta escolhida; as permissões chegam aqui. Pasta que o Claude Code ainda não conhece abre no app do Claude e espera o Enter lá. Anexos vão para ~/.habblaud/attachments e o pedido leva os caminhos.') }),
+        h('p', { class: 'ui-rename__hint', text: tr('Começa na hora uma sessão em segundo plano no computador, na pasta escolhida; as permissões chegam aqui.') }),
         this.submitBtn,
         this.status,
       ),
@@ -230,6 +276,27 @@ export class SpawnPanel {
     else this.el.classList.add('is-open');
     anchor.setAttribute('aria-expanded', 'true');
     // No celular, focar o campo abriria o teclado por cima da lista de projetos.
+    if (!matchMedia('(pointer: coarse)').matches) this.prompt.focus();
+  }
+
+  openForFolder(path: string, anchor?: HTMLElement): void {
+    if (anchor) this.anchor = anchor;
+    if (!this.folders.length) this.setFolders(spawnFolders(this.ctx.store.snapshot).map((p) => ({ path: p, name: p.split(/[\\/]/).pop() || p, lastAt: 0 })));
+    if (path && !this.folders.some((f) => f.path === path)) {
+      this.folders.unshift({ path, name: path.split(/[\\/]/).pop() || path, lastAt: Date.now() });
+    }
+    void this.loadFolders();
+    void this.checkDictation();
+    if (!this.busy) setText(this.status, '');
+    this.pick(path);
+    if (anchor) {
+      const r = anchor.getBoundingClientRect();
+      this.el.style.top = `${Math.round(r.bottom + 8)}px`;
+      this.el.style.right = `${Math.max(8, Math.round(innerWidth - r.right - 4))}px`;
+      anchor.setAttribute('aria-expanded', 'true');
+    }
+    if (typeof this.el.showPopover === 'function') this.el.showPopover();
+    else this.el.classList.add('is-open');
     if (!matchMedia('(pointer: coarse)').matches) this.prompt.focus();
   }
 
@@ -369,7 +436,7 @@ export class SpawnPanel {
       let info = await api<SpawnInfo>('/api/spawn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder, prompt: this.prompt.value, ...(ids.length ? { attachments: ids } : {}) }),
+        body: JSON.stringify({ folder, provider: this.provider, prompt: this.prompt.value, ...(ids.length ? { attachments: ids } : {}) }),
       });
       const end = Date.now() + WAIT_MS;
       while ((info.status === 'queued' || info.status === 'sent') && Date.now() < end) {

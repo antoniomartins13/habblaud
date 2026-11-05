@@ -80,6 +80,8 @@ export interface OfficeLike {
   list(): AgentInfo[];
   markDirty(): void;
   addActivity(id: string, activity: Activity, current: boolean): void;
+  /** Pasta da sessão (onde a mensagem do agy é entregue); opcional para os escritórios de teste. */
+  agentCwd?(id: string): string | undefined;
 }
 
 /** Entregador do Codex (`codex queue`). */
@@ -146,6 +148,8 @@ interface Entry {
   via?: 'node' | 'bridge';
   /** Mensagem a um agente do OpenCode: só o plugin dele busca (opencodePoll) e confirma (opencodeAck). */
   opencode?: true;
+  /** Mensagem a um agente do Antigravity (agy): entregue via bridge / tmux. */
+  antigravity?: true;
   /** Falhou por falta de confirmação: uma confirmação atrasada ainda corrige a situação. */
   late?: boolean;
 }
@@ -273,6 +277,7 @@ export class MessageRegistry {
     const a = this.opts.office.get(agentId);
     if (a?.provider === 'codex') return this.codexAvailable() && present(a) && a.kind === 'main';
     if (a?.provider === 'opencode') return this.opencodeRecent(agentId) && present(a) && a.kind === 'main';
+    if (a?.provider === 'antigravity') return present(a) && a.kind === 'main';
     const at = this.seen.get(agentId);
     if (at === undefined || this.now() - at >= this.presenceMs) return false;
     return present(a) && a.kind === 'main';
@@ -314,6 +319,7 @@ export class MessageRegistry {
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
     else if (real?.provider === 'opencode') entry.opencode = true;
+    else if (real?.provider === 'antigravity') entry.antigravity = true;
     this.messages.set(id, entry);
     const out = { ...entry.msg };
     if (entry.codex) this.pumpCodex();
@@ -472,6 +478,42 @@ export class MessageRegistry {
       if (e.msg.status !== 'sent' && !(e.msg.status === 'failed' && e.late)) continue;
       if (x.ok) this.finish(e, 'delivered', now);
       else this.fail(e, now, x.error ?? ERR_CODEX_REFUSED);
+    }
+  }
+
+  /**
+   * Busca mensagens para sessões do Antigravity CLI (agy) que rodam no host via bridge / tmux.
+   */
+  antigravityPoll(raw: unknown): Array<{ id: string; agentId: string; sessionId: string; folder?: string; text: string }> {
+    if (!rec(raw)) throw new InvalidRequest(tr('esperado um objeto JSON ({})'));
+    const now = this.now();
+    const busy = new Set<string>();
+    for (const e of this.messages.values()) if (e.antigravity && e.msg.status === 'sent') busy.add(e.msg.agentId);
+    const out: Array<{ id: string; agentId: string; sessionId: string; folder?: string; text: string }> = [];
+    for (const e of this.messages.values()) {
+      if (out.length >= INBOX_BATCH) break;
+      if (!e.antigravity || e.msg.status !== 'queued' || busy.has(e.msg.agentId)) continue;
+      busy.add(e.msg.agentId);
+      this.setStatus(e, 'sent', now);
+      e.sentAt = now;
+      e.via = 'bridge';
+      const a = this.opts.office.get(e.msg.agentId);
+      const folder = this.opts.office.agentCwd?.(e.msg.agentId) || a?.roomId;
+      out.push({ id: e.msg.id, agentId: e.msg.agentId, sessionId: e.target, ...(folder ? { folder } : {}), text: e.text });
+    }
+    return out;
+  }
+
+  antigravityAck(raw: unknown): void {
+    const r = rec(raw);
+    if (!r || !Array.isArray(r.results)) throw new InvalidRequest('esperado {results: [{id, ok, error?}]}');
+    const now = this.now();
+    for (const x of ackResults(r)) {
+      const e = this.messages.get(x.id);
+      if (!e || !e.antigravity || e.via !== 'bridge') continue;
+      if (e.msg.status !== 'sent' && !(e.msg.status === 'failed' && e.late)) continue;
+      if (x.ok) this.finish(e, 'delivered', now);
+      else this.fail(e, now, x.error ?? tr('falha ao entregar mensagem ao agy'));
     }
   }
 

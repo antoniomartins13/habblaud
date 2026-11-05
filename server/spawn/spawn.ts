@@ -40,9 +40,12 @@ export const KEEP_MS = 10 * 60_000;
 const MAX_OPEN = 5;
 const ERROR_MAX = 300;
 
+export type SpawnProvider = 'claude' | 'agy';
+
 export interface SpawnRequest {
   folder: string;
   prompt: string;
+  provider?: SpawnProvider;
 }
 
 export type SpawnStatus = 'queued' | 'sent' | 'opened' | 'failed';
@@ -53,6 +56,7 @@ export type SpawnHow = 'cli' | 'app';
 export interface SpawnInfo {
   id: string;
   folder: string;
+  provider?: SpawnProvider;
   status: SpawnStatus;
   error?: string;
   how?: SpawnHow;
@@ -72,11 +76,13 @@ export function parseSpawn(raw: unknown): SpawnRequest | { error: string } {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const folder = typeof r.folder === 'string' ? r.folder.trim() : '';
   const prompt = typeof r.prompt === 'string' ? r.prompt.replace(/\s+$/, '') : '';
+  const pRaw = typeof r.provider === 'string' ? r.provider.trim().toLowerCase() : '';
+  const provider: SpawnProvider | undefined = pRaw === 'agy' || pRaw === 'antigravity' ? 'agy' : pRaw === 'claude' ? 'claude' : undefined;
   if (!folder || folder.length > FOLDER_MAX || folder.includes('\0') || !(isAbsolute(folder) || /^[A-Za-z]:[\\/]/.test(folder))) {
     return { error: tr('escolha uma pasta (caminho absoluto, ex.: /Users/voce/projeto)') };
   }
   if (prompt.length > PROMPT_MAX || prompt.includes('\0')) return { error: tr('o pedido passa de {0} caracteres', [PROMPT_MAX]) };
-  return { folder, prompt };
+  return { folder, prompt, ...(provider ? { provider } : {}) };
 }
 
 /** O link que o app do Claude entende (claude://code/new; `q` = pedido já escrito). */
@@ -223,7 +229,7 @@ export class SpawnService {
       if ('error' in taken) return { error: 'invalid', reason: taken.error };
       files = taken;
     }
-    const info: SpawnInfo = { id: this.opts.newId?.() ?? randomUUID(), folder: req.folder, status: 'queued' };
+    const info: SpawnInfo = { id: this.opts.newId?.() ?? randomUUID(), folder: req.folder, ...(req.provider ? { provider: req.provider } : {}), status: 'queued' };
     const entry: Entry = { info, req, files, at: this.now() };
     this.entries.set(info.id, entry);
     if (this.opts.opener) void this.openDirect(entry, this.opts.opener);
@@ -247,7 +253,7 @@ export class SpawnService {
       e.at = this.now();
       const files = e.files.map((f) => ({ name: f.name, type: f.type, data: f.data.toString('base64') }));
       this.dropFiles(e);
-      out.push({ id: e.info.id, folder: e.req.folder, prompt: e.req.prompt, files });
+      out.push({ id: e.info.id, folder: e.req.folder, prompt: e.req.prompt, ...(e.req.provider ? { provider: e.req.provider } : {}), files });
     }
     return out;
   }

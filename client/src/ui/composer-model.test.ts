@@ -128,4 +128,12 @@ describe('caixa de mensagem (peças puras)', () => {
     expect(pollDelay(20_000)).toBeGreaterThan(pollDelay(0));
     expect(pollDelay(60_000)).toBeGreaterThanOrEqual(pollDelay(20_000));
   });
+
+  it('Antigravity (agy): sessão pronta para receber mensagens direto do Habblaud', () => {
+    const agy = (over: Partial<AgentInfo> = {}) => agent({ provider: 'antigravity', ...over });
+    expect(composerMode(agy(), ON)).toEqual({ kind: 'ready' });
+    expect(composerTip('antigravity')).toMatch(/^Entra na sessão do Antigravity/);
+    expect(composerMode(agy(), { ...ON, enabled: false })).toEqual({ kind: 'off', text: 'Para responder, use o terminal do Antigravity' });
+    expect(composerMode(agy({ status: 'offline' }), ON)).toEqual({ kind: 'off', text: 'Sessão encerrada' });
+  });
 });

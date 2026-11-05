@@ -29,8 +29,9 @@ describe('Antigravity no cliente', () => {
     expect(emptyOfficeHint([{ short: 'G', provider: 'antigravity' }])).not.toContain('atalho');
   });
 
-  it('o escritório não oferece mensagem para o Antigravity (não há caminho para uma sessão aberta)', () => {
+  it('o escritório oferece mensagem para o Antigravity quando canMessage está ativo', () => {
     const agent = { kind: 'main', status: 'idle', provider: 'antigravity', canMessage: true } as AgentInfo;
-    expect(composerMode(agent, { enabled: true, local: true, replaying: false })).toEqual({ kind: 'off', text: 'Para responder, use o terminal do Antigravity' });
+    expect(composerMode(agent, { enabled: true, local: true, replaying: false })).toEqual({ kind: 'ready' });
+    expect(composerMode(agent, { enabled: false, local: true, replaying: false })).toEqual({ kind: 'off', text: 'Para responder, use o terminal do Antigravity' });
   });
 });

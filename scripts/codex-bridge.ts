@@ -16,7 +16,8 @@
 // anexos) e transcreve o ditado com o Whisper local (whisper-cli + ffmpeg + modelo; ver server/dictation/whisper.ts).
 // Arquivos e ditado usam rodadas com espera: o Habblaud só responde quando chega trabalho (ou a cada 20 s).
 // Ctrl+C para parar.
-import { statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -33,7 +34,6 @@ import { HOST_WAIT_MS } from '../server/host-wait';
 import { stopSession, type HostStopDeps, type StopResult } from '../server/spawn/stop';
 import { createGateReader, readPipelinePending } from '../server/pipeline/status';
 import { readEnvValue } from '../server/remote/envfile';
-import { readFileSync } from 'node:fs';
 
 export const DEFAULT_PORT = 4747;
 /** Intervalo entre as rodadas. */
@@ -92,6 +92,37 @@ function isDir(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function findAgyBin(env = process.env): string | undefined {
+  if (env.HABBLAUD_AGY_BIN && existsSync(env.HABBLAUD_AGY_BIN)) return env.HABBLAUD_AGY_BIN;
+  const userAgy = join(env.HOME || homedir(), '.local', 'bin', 'agy');
+  if (existsSync(userAgy)) return userAgy;
+  try {
+    const res = execFileSync('which', ['agy'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+    if (res && existsSync(res)) return res;
+  } catch {}
+  return undefined;
+}
+
+export function findTmuxTarget(sessionId: string, folder?: string): string | undefined {
+  try {
+    const out = execFileSync('tmux', ['list-panes', '-a', '-F', '#{session_name}\t#{pane_current_path}'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+    const lines = out.trim().split('\n').filter(Boolean);
+    for (const line of lines) {
+      const [name] = line.split('\t');
+      if (name && sessionId && name.includes(sessionId.slice(0, 8))) return name;
+    }
+    if (folder) {
+      for (const line of lines) {
+        const [name, path] = line.split('\t');
+        if (path === folder || path.startsWith(folder)) return name;
+      }
+    }
+    const agySessions = lines.map((l) => l.split('\t')[0]).filter((n) => n.startsWith('habblaud-agy-'));
+    if (agySessions.length === 1) return agySessions[0];
+  } catch {}
+  return undefined;
 }
 
 /**
@@ -176,6 +207,45 @@ export async function round(post: Post, run: CodexQueueRunner, log: (line: strin
   return { state: 'ok', results };
 }
 
+/** Uma rodada para entregar mensagens a sessões do agy rodando em segundo plano no tmux. */
+export async function antigravityMessageRound(post: Post, log: (line: string) => void = () => {}): Promise<RoundResult> {
+  const polled = await post('/api/antigravity/bridge/poll', {});
+  if (!polled) return { state: 'down' };
+  const list = rec(polled.json)?.messages;
+  if (polled.status !== 200 || !Array.isArray(list)) return { state: 'refused', status: polled.status };
+  const results: BridgeResult[] = [];
+  for (const raw of list) {
+    const r = rec(raw);
+    const id = typeof r?.id === 'string' ? r.id : '';
+    const text = typeof r?.text === 'string' ? r.text : '';
+    const sessionId = typeof r?.sessionId === 'string' ? r.sessionId : '';
+    const folder = typeof r?.folder === 'string' ? r.folder : undefined;
+    if (!id || !text) continue;
+    const target = findTmuxTarget(sessionId, folder);
+    if (!target) {
+      const result = { id, ok: false, error: tr('sessão tmux do agy não encontrada') };
+      results.push(result);
+      await post('/api/antigravity/bridge/ack', { results: [result] });
+      log(tr('✗ agy: sessão tmux não encontrada para {0}', [sessionId.slice(0, 8)]));
+      continue;
+    }
+    try {
+      execFileSync('tmux', ['send-keys', '-t', target, '-l', text]);
+      execFileSync('tmux', ['send-keys', '-t', target, 'Enter']);
+      const result = { id, ok: true };
+      results.push(result);
+      await post('/api/antigravity/bridge/ack', { results: [result] });
+      log(tr('✓ mensagem entregue à sessão agy ({0})', [target]));
+    } catch (err) {
+      const result = { id, ok: false, error: String((err as Error)?.message ?? err) };
+      results.push(result);
+      await post('/api/antigravity/bridge/ack', { results: [result] });
+      log(tr('✗ erro ao enviar para agy ({0}): {1}', [target, result.error]));
+    }
+  }
+  return { state: 'ok', results };
+}
+
 /** Anexos de um pedido vindo do Habblaud: nomes seguros, base64 válido, tamanho e quantidade no limite. */
 export function checkFiles(raw: unknown): Attachment[] | { error: string } {
   if (raw === undefined) return [];
@@ -243,12 +313,26 @@ export async function spawnRound(
     let r: { ok: true; how: SpawnHow; note?: string } | { ok: false; error: string };
     try {
       const paths = write(id, files);
-      r = await launch({ folder: req.folder, prompt: promptWithAttachments(req.prompt, paths) }, open, cli);
+      if (req.provider === 'agy') {
+        const agyBin = findAgyBin();
+        if (!agyBin) {
+          r = { ok: false, error: tr('binário do Antigravity (agy) não encontrado no computador') };
+        } else {
+          const sessionName = `habblaud-agy-${id.slice(0, 8)}`;
+          const fullPrompt = promptWithAttachments(req.prompt, paths);
+          const args = ['new-session', '-d', '-s', sessionName, '-c', req.folder, agyBin, '--dangerously-skip-permissions'];
+          if (fullPrompt) args.push('-i', fullPrompt);
+          execFileSync('tmux', args);
+          r = { ok: true, how: 'cli' };
+        }
+      } else {
+        r = await launch({ folder: req.folder, prompt: promptWithAttachments(req.prompt, paths) }, open, cli);
+      }
     } catch (err) {
       r = { ok: false, error: String((err as Error)?.message ?? err) };
     }
     results.push(r.ok ? { id, ok: true, how: r.how, ...(r.note ? { note: r.note } : {}) } : { id, ok: false, error: r.error });
-    log(!r.ok ? tr('✗ agente novo em {0}: {1}', [req.folder, r.error]) : spawnedLine(req.folder, r.how, files.length, r.note));
+    log(!r.ok ? tr('✗ agente novo em {0}: {1}', [req.folder, r.error]) : req.provider === 'agy' ? tr('✓ agente agy novo rodando em segundo plano no tmux ({0})', [`habblaud-agy-${id.slice(0, 8)}`]) : spawnedLine(req.folder, r.how, files.length, r.note));
   }
   if (results.length) await post('/api/host/spawn/ack', { results });
   return { state: 'ok', results };
@@ -277,6 +361,13 @@ export async function stopRound(
     let r: StopResult;
     try {
       r = await stop(sessionId, deps);
+      if (!r.ok) {
+        const target = findTmuxTarget(sessionId);
+        if (target) {
+          execFileSync('tmux', ['kill-session', '-t', target]);
+          r = { ok: true, how: 'job' };
+        }
+      }
     } catch (err) {
       r = { ok: false, error: String((err as Error)?.message ?? err) };
     }
@@ -414,6 +505,8 @@ async function main(): Promise<void> {
       ? tr('Entregando as mensagens do Habblaud (http://127.0.0.1:{0}) às sessões do Codex com {1}, e começando os agentes novos pedidos no escritório. Ctrl+C para parar.', [parsed.port, bin])
       : tr('Sem o Codex (codex no PATH ou HABBLAUD_CODEX_BIN): só começo os agentes novos pedidos no Habblaud (http://127.0.0.1:{0}). Ctrl+C para parar.', [parsed.port]),
   );
+  const agyBin = findAgyBin(process.env);
+  if (agyBin) log(tr('Antigravity (agy): sessões agy iniciadas no Habblaud rodam no tmux com {0}.', [agyBin]));
   log(cli ? tr('Agentes novos rodam em segundo plano com {0} --bg (pasta confiável; senão, no app do Claude).', [claudeBin]) : tr('Sem o claude no PATH (ou HABBLAUD_CLAUDE_BIN): agentes novos abrem no app do Claude e esperam o Enter.'));
   const whisper = findWhisper(process.env);
   let transcribe: Transcriber | undefined;
@@ -426,7 +519,14 @@ async function main(): Promise<void> {
   if (!parsed.once) {
     const waitPost = httpPost(parsed.port, HOST_WAIT_MS + 10_000);
     const accountDirs = discoverClaudeDirs(process.env);
-    const roots = [...tempRoots(), attachmentsRoot()];
+    // Só o que tem documento para ler: tarefas do pipeline e artefatos das conversas do agy. Nunca ~/.gemini inteiro
+    // (token de login, configs e logs ficam lá) nem _pipeline/.local (estado e aprovações do runner).
+    const roots = [
+      ...tempRoots(),
+      attachmentsRoot(),
+      ...(pipelineDir() ? [join(pipelineDir()!, 'tarefas')] : []),
+      join(homedir(), '.gemini', 'antigravity-cli', 'brain'),
+    ];
     const inside = (p: string) => insideKnownFolder(p, { accountDirs, roots });
     void waitLoop(() => filesRound(waitPost, log, undefined, undefined, { inside, wait: true }));
     if (transcribe) {
@@ -454,6 +554,7 @@ async function main(): Promise<void> {
       spawned = await spawnRound(post, open, log, undefined, undefined, cli);
       if (spawned.state === 'refused') spawnRetryAt = Date.now() + REFUSED_RETRY_MS;
     }
+    await antigravityMessageRound(post, log);
     const r = run ? await round(post, run, log) : spawned;
     const state =
       r.state === 'down'

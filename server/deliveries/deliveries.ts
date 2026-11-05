@@ -25,10 +25,11 @@ const HEADLINE_MAX = 180;
 const SUMMARY_MAX = 600;
 const REQUEST_MAX = 240;
 const MIN_TEXT = 30;
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch']);
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch', 'write_file', 'edit_file']);
 /** Caminhos de arquivo de ver citados na resposta: em links markdown ou soltos. */
-const LINK_RE = /\]\(\s*<?([^)\s>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?::\d+)?>?\s*\)/gi;
-const BARE_RE = /(?:^|[\s(`"'])(\/[^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?))(?=$|[\s`"'),.;:!?])/gim;
+const LINK_RE = /\]\(\s*<?([^)\s>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?|md|markdown))(?::\d+)?>?\s*\)/gi;
+const BARE_RE = /(?:^|[\s(`"'])(\/[^\s`"'()<>]+?\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|mov|webm|html?|md|markdown))(?=$|[\s`"'),.;:!?])/gim;
+const BACKTICK_MD_RE = /`([a-zA-Z0-9_./~-]+\.(?:md|markdown))` /gi;
 
 export interface SessionSource {
   path: string;
@@ -141,6 +142,7 @@ export function linkedFiles(text: string, project?: string): string[] {
   };
   for (const m of text.matchAll(LINK_RE)) add(m[1]);
   for (const m of text.matchAll(BARE_RE)) add(m[1]);
+  for (const m of text.matchAll(BACKTICK_MD_RE)) add(m[1]);
   return [...out];
 }
 
@@ -221,7 +223,10 @@ export function parseTurns(lines: Iterable<string>, parser: TerminalParser): { t
         }
       } else if (e.kind === 'tool') {
         cur.tools++;
-        if (EDIT_TOOLS.has(e.tool)) cur.edited.add(e.title);
+        if (EDIT_TOOLS.has(e.tool)) {
+          cur.edited.add(e.title);
+          if (/\.(md|markdown)$/i.test(e.title)) cur.files.push({ path: e.title });
+        }
       }
     }
     if (!cur) continue;

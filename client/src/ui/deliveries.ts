@@ -132,24 +132,42 @@ export class Deliveries implements UiComponent {
   private current: DeliveryInfo | null = null;
   private viewIndex = 0;
   private available = false;
+  private filter: 'all' | 'docs' = 'all';
 
   constructor(
     private readonly ctx: UiContext,
     private readonly terminal: TerminalControl,
   ) {
     this.badge = h('span', { class: 'ui-deliv-badge', hidden: true, attrs: { 'aria-hidden': 'true' } });
-    this.button = iconButton(ICONS.delivery, tr('Entregas: o que os agentes terminaram'), () => this.togglePanel(), 'ui-btn-deliv');
+    this.button = iconButton(ICONS.delivery, tr('Entregas e Documentos (.md): o que os agentes terminaram'), () => this.togglePanel(), 'ui-btn-deliv');
     this.button.setAttribute('aria-haspopup', 'dialog');
     this.button.append(this.badge);
     this.button.hidden = true;
 
     this.listEl = h('ul', { class: 'ui-deliv-list', attrs: { 'aria-label': tr('Entregas') } });
     this.empty = h('p', { class: 'ui-deliv-empty', text: tr('Carregando as entregas…') });
+    const allTab = h('button', { class: 'ui-btn ui-deliv__tab is-on', type: 'button', text: tr('Entregas') });
+    const docsTab = h('button', { class: 'ui-btn ui-deliv__tab', type: 'button', text: tr('Documentos (.md)') });
+    allTab.onclick = () => {
+      this.filter = 'all';
+      allTab.classList.add('is-on');
+      docsTab.classList.remove('is-on');
+      this.renderList();
+    };
+    docsTab.onclick = () => {
+      this.filter = 'docs';
+      docsTab.classList.add('is-on');
+      allTab.classList.remove('is-on');
+      this.renderList();
+    };
+    const tabRow = h('div', { class: 'ui-deliv__tabs', role: 'tablist' }, allTab, docsTab);
+
     this.panel = h(
       'div',
-      { class: 'ui-popover ui-deliv', role: 'dialog', tabIndex: -1, attrs: { 'aria-label': tr('Entregas'), id: 'ui-deliveries', popover: 'auto' } },
-      h('div', { class: 'ui-popover__head' }, h('h2', { text: tr('Entregas') }), iconButton(ICONS.close, tr('Fechar'), () => this.hidePanel(), 'ui-icon-btn--sm')),
-      h('p', { class: 'ui-deliv-lead', text: tr('O que cada agente terminou, em poucas palavras. Toque para ver o pedido, a resposta e os anexos.') }),
+      { class: 'ui-popover ui-deliv', role: 'dialog', tabIndex: -1, attrs: { 'aria-label': tr('Entregas e Documentos'), id: 'ui-deliveries', popover: 'auto' } },
+      h('div', { class: 'ui-popover__head' }, h('h2', { text: tr('Entregas e Documentos') }), iconButton(ICONS.close, tr('Fechar'), () => this.hidePanel(), 'ui-icon-btn--sm')),
+      h('p', { class: 'ui-deliv-lead', text: tr('O que cada agente terminou e todos os documentos .md mencionados nas conversas recentes.') }),
+      tabRow,
       this.empty,
       this.listEl,
     );
@@ -201,9 +219,8 @@ export class Deliveries implements UiComponent {
 
   render(): void {
     const store = this.ctx.store;
-    // Só na página do celular (porta remota com login e o terminal liberado): no computador o terminal e o histórico
-    // já mostram tudo, e a barra não ganha botão nem consulta nova sem configurar o acesso pelo celular.
-    const available = access().remote && access().terminal && !!store.snapshot?.meta.terminal && !store.mock && !store.replaying;
+    // Disponível sempre que o terminal estiver ligado no servidor e com permissão (acesso local ou remoto autorizado).
+    const available = (access().remote ? access().terminal : true) && !!store.snapshot?.meta.terminal && !store.mock && !store.replaying;
     if (available !== this.available) {
       this.available = available;
       setHidden(this.button, !available);
@@ -293,6 +310,59 @@ export class Deliveries implements UiComponent {
 
   private renderList(highlightAfter = this.seenAt): void {
     const now = Date.now();
+    if (this.filter === 'docs') {
+      const docs: Array<{ att: DeliveryAttachment; delivery: DeliveryInfo }> = [];
+      const seen = new Set<string>();
+      for (const d of this.list) {
+        for (const a of d.attachments) {
+          const key = `${d.project ?? ''}:${a.name}`;
+          if (/\.(md|markdown)$/i.test(a.name) && !seen.has(key)) {
+            seen.add(key);
+            docs.push({ att: a, delivery: d });
+          }
+        }
+      }
+      setHidden(this.empty, docs.length > 0);
+      if (!docs.length) {
+        setText(this.empty, tr('Nenhum documento .md encontrado nas entregas ou conversas recentes.'));
+        this.listEl.replaceChildren();
+        return;
+      }
+      this.listEl.replaceChildren(
+        ...docs.map(({ att, delivery }) =>
+          h(
+            'li',
+            {},
+            h(
+              'button',
+              {
+                class: 'ui-deliv-card ui-deliv-card--doc',
+                type: 'button',
+                on: {
+                  click: () => {
+                    this.current = delivery;
+                    const idx = delivery.attachments.indexOf(att);
+                    this.openViewer(idx >= 0 ? idx : 0);
+                  },
+                },
+              },
+              h(
+                'span',
+                { class: 'ui-deliv-card__who' },
+                this.who(delivery, 'sm'),
+                h('span', { class: 'ui-deliv-card__name', text: delivery.agentName ?? tr('Agente') }),
+                delivery.project ? h('span', { class: 'ui-deliv-card__project', text: projectName(delivery.project) }) : null,
+                h('span', { class: 'ui-deliv-card__when', text: relativeTime(delivery.finishedAt, now) }),
+              ),
+              h('span', { class: 'ui-deliv-card__headline', text: `📄 ${att.name}` }),
+              att.caption ? h('span', { class: 'ui-deliv-card__summary', text: att.caption }) : null,
+              h('span', { class: 'ui-deliv-card__meta', text: tr('Toque para ler o documento formatado') }),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     setHidden(this.empty, this.list.length > 0);
     setText(this.empty, this.error ? tr('Não deu para carregar: {0}', [this.error]) : this.loaded ? tr('Nenhuma entrega nos últimos 7 dias.') : tr('Carregando as entregas…'));
     this.listEl.replaceChildren(...this.list.map((d) => h('li', {}, this.card(d, now, d.finishedAt > highlightAfter))));
@@ -420,11 +490,43 @@ export class Deliveries implements UiComponent {
     else if (a.kind === 'video') body = h('video', { class: 'ui-deliv-viewer__video', attrs: { src: url, controls: true, playsinline: true } });
     else if (a.kind === 'pdf' || a.kind === 'page') body = h('iframe', { class: 'ui-deliv-viewer__frame', attrs: { src: url, title: a.name } });
     else if (a.kind === 'text') {
-      body = h('pre', { class: 'ui-deliv-viewer__text', text: tr('Carregando…') });
-      const pre = body;
+      const isMd = /\.(md|markdown)$/i.test(a.name);
+      const pre = h('pre', { class: 'ui-deliv-viewer__text', text: tr('Carregando…') });
+      const mdWrap = isMd ? h('div', { class: 'ui-deliv-viewer__rendered ui-markdown' }) : null;
+      let showRaw = false;
+
+      const toggleBtn = isMd
+        ? h('button', {
+            class: 'ui-btn ui-btn--xs ui-deliv-viewer__toggle',
+            type: 'button',
+            text: tr('Ver código'),
+            on: {
+              click: () => {
+                showRaw = !showRaw;
+                if (toggleBtn) setText(toggleBtn, showRaw ? tr('Ver formatado') : tr('Ver código'));
+                setHidden(pre, !showRaw);
+                if (mdWrap) setHidden(mdWrap, showRaw);
+              },
+            },
+          })
+        : null;
+
+      const wrap = h('div', { class: 'ui-deliv-viewer__text-wrap' }, toggleBtn, mdWrap, pre);
+      if (isMd) setHidden(pre, true);
+      body = wrap;
+
       void fetch(url, { credentials: 'same-origin' })
         .then(async (r) => (r.ok ? r.text() : Promise.reject(new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? tr('erro {0}', [r.status])))))
-        .then((t) => setText(pre, t.slice(0, 200_000)), (e: Error) => setText(pre, tr('Não deu para abrir: {0}', [e.message])));
+        .then(
+          (t) => {
+            const raw = t.slice(0, 500_000);
+            setText(pre, raw);
+            if (isMd && mdWrap) {
+              mdWrap.replaceChildren(renderMarkdown(raw));
+            }
+          },
+          (e: Error) => setText(pre, tr('Não deu para abrir: {0}', [e.message])),
+        );
     } else body = h('div', { class: 'ui-deliv-viewer__file' }, h('p', { text: a.name }), h('a', { class: 'ui-btn', text: tr('Baixar'), attrs: { href: url, download: a.name } }));
     if (body instanceof HTMLImageElement || body instanceof HTMLIFrameElement) {
       body.addEventListener('error', () => this.viewerBody.replaceChildren(h('p', { class: 'ui-deliv-viewer__err', text: tr('Não deu para abrir este anexo (o arquivo mudou de lugar ou o computador não respondeu).') })));
