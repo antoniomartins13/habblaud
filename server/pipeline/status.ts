@@ -268,6 +268,14 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
   }
   const out: PipelinePending[] = [];
   const hashes = new Map<string, string | undefined>();
+  // Entregas com alguma tarefa ainda trabalhando: "a concluir" só quando todas estão prontas (ou encerradas).
+  const unfinished = new Set<string>();
+  for (const task of tasks) {
+    const st = readJson(join(local, task, 'state.json'), readFile);
+    const phase = typeof st?.phase === 'string' ? st.phase : '';
+    const entrega = readJson(join(deps.dir, 'tarefas', task, 'task.json'), readFile)?.entrega;
+    if (typeof entrega === 'string' && phase && phase !== 'ready_for_draft' && phase !== 'closed') unfinished.add(entrega);
+  }
   for (const task of tasks) {
     const statePath = join(local, task, 'state.json');
     if (!exists(statePath)) continue;
@@ -278,6 +286,7 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
     if (!kind) continue;
     const manifest = readJson(join(deps.dir, 'tarefas', task, 'task.json'), readFile);
     const entrega = typeof manifest?.entrega === 'string' && TASK_ID.test(manifest.entrega) ? manifest.entrega : undefined;
+    if (kind === 'draft' && entrega && unfinished.has(entrega)) continue;
     const p: PipelinePending = { task, kind };
     if (entrega) p.entrega = entrega;
     if (kind === 'blocked') {

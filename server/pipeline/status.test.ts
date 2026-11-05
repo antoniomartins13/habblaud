@@ -51,6 +51,18 @@ describe('readPipelinePending (auxiliar do host)', () => {
     expect(gates).toEqual(['ent-a']);
   });
 
+  it('"a concluir" de uma entrega só aparece quando todas as tarefas dela estão prontas', async () => {
+    const files = (backPhase: string) =>
+      fs({
+        [`${DIR}/.local/tasks/r-back/state.json`]: { phase: backPhase },
+        [`${DIR}/tarefas/r-back/task.json`]: { entrega: 'rel' },
+        [`${DIR}/.local/tasks/r-front/state.json`]: { phase: 'ready_for_draft' },
+        [`${DIR}/tarefas/r-front/task.json`]: { entrega: 'rel' },
+      });
+    expect(await readPipelinePending({ dir: DIR, ...files('dev') })).toEqual([]);
+    expect((await readPipelinePending({ dir: DIR, ...files('ready_for_draft') })).map((p) => p.task)).toEqual(['r-back', 'r-front']);
+  });
+
   it('sem .local/tasks, nada (e nada lança)', async () => {
     expect(await readPipelinePending({ dir: DIR, ...fs({}) })).toEqual([]);
   });
