@@ -39,6 +39,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- O pedido de permissão de uma fase do runner do pipeline (sessão com `PIPELINE_PHASE`) não vai mais para o escritório: o runner roda sem ninguém responder, e o pedido parava a fase esperando um clique.
 - Os botões Aprovar/Recuperar/Concluir mandam a linha sempre para o console do pipeline (sessão "Console do pipeline"), e não para a sessão do Claude mais recente nem para a coordenadora da sala. Com o console fora do ar, vale a regra anterior.
 - A janela de leitura (Spec, Roteiro, Revisão…) não desfoca mais o escritório por trás: com ela aberta, o navegador ficava lento.
 - O escritório desenha no máximo 24 quadros por segundo: a aba do Habblaud deixava o processo de GPU do Chrome em 100% de CPU.

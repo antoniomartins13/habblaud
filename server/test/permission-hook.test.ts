@@ -21,8 +21,9 @@ interface HookModule {
   requestBody(input: Record<string, unknown>, timeoutMs: number): Record<string, unknown>;
   trimInput(v: unknown, max?: number): unknown;
   decisionOutput(result: unknown, input: unknown): unknown;
+  run(argv: string[], env: NodeJS.ProcessEnv, stdinText?: string): Promise<unknown>;
 }
-const { decisionOutput, parseOptions, requestBody, trimInput } = (await import(pathToFileURL(HOOK).href)) as HookModule;
+const { decisionOutput, parseOptions, requestBody, run, trimInput } = (await import(pathToFileURL(HOOK).href)) as HookModule;
 
 /**
  * tool_input de um AskUserQuestion. Os textos que voltam em `answers` são os ORIGINAIS (o escritório só vê os
@@ -198,6 +199,14 @@ describe('permission-hook.mjs (funções)', () => {
     expect(parseOptions(['--port', '4851', '--timeout', '60'], {})).toEqual({ port: 4851, timeoutMs: 60_000 });
     expect(parseOptions([], { HABBLAUD_PORT: '4848', HABBLAUD_PERMISSION_TIMEOUT: '1' })).toEqual({ port: 4848, timeoutMs: 5_000 });
     expect(parseOptions(['--port', 'x', '--timeout', '99999'], {})).toEqual({ port: 4747, timeoutMs: 86_400_000 });
+  });
+
+  it('run: fase do runner do pipeline (PIPELINE_PHASE/PIPELINE_RUN_DIR) sai sem decidir e sem chamar o Habblaud', async () => {
+    const input = JSON.stringify(hookJson({}));
+    // Porta 1 (nada escutando): se o hook tentasse falar com o Habblaud, ainda assim sairia sem decidir; o que
+    // importa e nao ficar esperando. Com a fase do runner, a resposta vem antes de qualquer rede.
+    expect(await run(['--port', '1'], { PIPELINE_PHASE: 'review' }, input)).toBeUndefined();
+    expect(await run(['--port', '1'], { PIPELINE_RUN_DIR: '/x/.local/runs/t/1' }, input)).toBeUndefined();
   });
 
   it('requestBody: só o que o Habblaud usa, com textos cortados', () => {

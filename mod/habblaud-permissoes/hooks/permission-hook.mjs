@@ -199,6 +199,9 @@ async function call(base, method, path, body, timeoutMs) {
 /** Decide o pedido (ou não). Devolve a saída a imprimir, ou undefined. Nunca lança. */
 export async function run(argv = process.argv.slice(2), env = process.env, stdinText) {
   try {
+    // Fase do runner do pipeline (claude -p com PIPELINE_PHASE/PIPELINE_RUN_DIR): ninguem responde pedido de
+    // permissao; sem decidir aqui, o modo headless nega na hora e o runner registra (negativa incidental).
+    if (env.PIPELINE_PHASE || env.PIPELINE_RUN_DIR) return undefined;
     const opts = parseOptions(argv, env);
     const raw = stdinText ?? (await readStdin());
     if (!raw) return undefined;
