@@ -31,7 +31,7 @@ import { createWhisperTranscriber, findWhisper, type Transcriber } from '../serv
 import { checkFile, insideKnownFolder, tempRoots } from '../server/deliveries/files';
 import { discoverClaudeDirs } from '../server/accounts/detect';
 import { HOST_WAIT_MS } from '../server/host-wait';
-import { stopSession, type HostStopDeps, type StopResult } from '../server/spawn/stop';
+import { stopAgySession, stopSession, type HostStopDeps, type StopResult } from '../server/spawn/stop';
 import { createGateReader, readPipelinePending } from '../server/pipeline/status';
 import { readEnvValue } from '../server/remote/envfile';
 
@@ -339,8 +339,8 @@ export async function spawnRound(
 }
 
 /**
- * Encerrar sessões pelo escritório: busca os pedidos (POST /api/host/stop/poll), acha cada sessão no registro das
- * contas deste computador e encerra (`claude stop` ou SIGTERM conferido, spawn/stop.ts); confirma em
+ * Encerrar sessões pelo escritório: busca os pedidos (POST /api/host/stop/poll), acha cada sessão (Claude: registro das
+ * contas; agy: o processo cujo log aberto cita a conversa) e encerra (`claude stop` ou SIGTERM conferido, spawn/stop.ts); confirma em
  * /api/host/stop/ack. Nunca lança.
  */
 export async function stopRound(
@@ -348,6 +348,7 @@ export async function stopRound(
   deps: HostStopDeps,
   log: (line: string) => void = () => {},
   stop: (sessionId: string, deps: HostStopDeps) => Promise<StopResult> = stopSession,
+  stopAgy: (conversationId: string) => Promise<StopResult> = (id) => stopAgySession(id),
 ): Promise<'down' | 'refused' | 'ok'> {
   const polled = await post('/api/host/stop/poll', {});
   if (!polled) return 'down';
@@ -357,22 +358,17 @@ export async function stopRound(
   for (const raw of list) {
     const id = typeof rec(raw)?.id === 'string' ? (rec(raw)!.id as string) : '';
     const sessionId = typeof rec(raw)?.sessionId === 'string' ? (rec(raw)!.sessionId as string) : '';
+    const agy = rec(raw)?.provider === 'antigravity';
     if (!id) continue;
     let r: StopResult;
     try {
-      r = await stop(sessionId, deps);
-      if (!r.ok) {
-        const target = findTmuxTarget(sessionId);
-        if (target) {
-          execFileSync('tmux', ['kill-session', '-t', target]);
-          r = { ok: true, how: 'job' };
-        }
-      }
+      // agy: o processo da conversa, achado pelo log que ele mantém aberto (nunca "a única sessão tmux do agy").
+      r = agy ? await stopAgy(sessionId) : await stop(sessionId, deps);
     } catch (err) {
       r = { ok: false, error: String((err as Error)?.message ?? err) };
     }
     results.push(r.ok ? { id, ok: true, how: r.how } : { id, ok: false, error: r.error });
-    log(r.ok ? tr('✓ sessão {0} encerrada ({1})', [sessionId.slice(0, 8), r.how === 'job' ? 'claude stop' : 'SIGTERM']) : tr('✗ sessão {0} não encerrada: {1}', [sessionId.slice(0, 8), r.error]));
+    log(r.ok ? tr('✓ sessão {0} encerrada ({1})', [sessionId.slice(0, 8), r.how === 'job' ? 'claude stop' : agy ? 'agy, SIGTERM' : 'SIGTERM']) : tr('✗ sessão {0} não encerrada: {1}', [sessionId.slice(0, 8), r.error]));
   }
   if (results.length) await post('/api/host/stop/ack', { results });
   return 'ok';

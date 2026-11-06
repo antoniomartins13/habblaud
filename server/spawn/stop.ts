@@ -10,7 +10,7 @@
 // Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tr } from '../../shared/i18n';
 import { isDefaultDir } from '../accounts/detect';
@@ -22,9 +22,13 @@ export type StopStatus = 'queued' | 'sent' | 'stopped' | 'failed';
 /** Como o auxiliar encerrou: `claude stop` (segundo plano) ou sinal no processo (terminal). */
 export type StopHow = 'job' | 'signal';
 
+/** De quem é a sessão: Claude Code (registro em <conta>/sessions) ou Antigravity (processo agy da conversa). */
+export type StopProvider = 'claude' | 'antigravity';
+
 export interface StopInfo {
   id: string;
   sessionId: string;
+  provider?: StopProvider;
   status: StopStatus;
   how?: StopHow;
   error?: string;
@@ -33,6 +37,7 @@ export interface StopInfo {
 export interface PolledStop {
   id: string;
   sessionId: string;
+  provider?: StopProvider;
 }
 
 export type StopSubmit = { stop: StopInfo } | { error: 'invalid' | 'unavailable' | 'busy'; reason: string };
@@ -69,7 +74,7 @@ export class StopService {
     return this.now() - this.hostSeenAt <= HOST_PRESENCE_MS;
   }
 
-  submit(sessionId: string): StopSubmit {
+  submit(sessionId: string, provider: StopProvider = 'claude'): StopSubmit {
     this.prune();
     if (!SESSION_ID.test(sessionId)) return { error: 'invalid', reason: tr('sessão inválida') };
     if (!this.available()) {
@@ -78,7 +83,7 @@ export class StopService {
     for (const e of this.entries.values()) {
       if (e.info.sessionId === sessionId && (e.info.status === 'queued' || e.info.status === 'sent')) return { stop: { ...e.info } };
     }
-    const info: StopInfo = { id: this.opts.newId?.() ?? randomUUID(), sessionId, status: 'queued' };
+    const info: StopInfo = { id: this.opts.newId?.() ?? randomUUID(), sessionId, ...(provider !== 'claude' ? { provider } : {}), status: 'queued' };
     this.entries.set(info.id, { info, at: this.now() });
     return { stop: { ...info } };
   }
@@ -98,7 +103,7 @@ export class StopService {
       if (e.info.status !== 'queued') continue;
       e.info.status = 'sent';
       e.at = this.now();
-      out.push({ id: e.info.id, sessionId: e.info.sessionId });
+      out.push({ id: e.info.id, sessionId: e.info.sessionId, ...(e.info.provider ? { provider: e.info.provider } : {}) });
     }
     return out;
   }
@@ -216,6 +221,94 @@ export async function stopSession(sessionId: string, deps: HostStopDeps): Promis
   }
   try {
     (deps.kill ?? ((pid: number, sig: NodeJS.Signals) => process.kill(pid, sig)))(entry.pid, 'SIGTERM');
+  } catch (err) {
+    return { ok: false, error: tr('não consegui encerrar o processo: {0}', [(err as Error).message]).slice(0, ERROR_MAX) };
+  }
+  return { ok: true, how: 'signal' };
+}
+
+
+// ---------------------------------------------------------------- Antigravity (agy)
+// O agy não tem registro de sessões como o Claude Code. Cada processo `agy` grava o próprio log
+// (~/.gemini/antigravity-cli/log/cli-<data>.log, aberto por ele), onde o id da conversa (cascade_id = pasta em brain/,
+// o sessionId que o Habblaud mostra) aparece quando a conversa começa. O processo da conversa é o agy do usuário cujo
+// log aberto cita o id. Nunca toca no agy headless (`-p`: o runner do pipeline e afins) nem em processo com as
+// variáveis do runner; com mais de um candidato, não encerra nenhum. Antes do SIGTERM, confere de novo que o PID é
+// o mesmo processo (início e nome), como no Claude.
+
+const AGY_LOG = /\/antigravity-cli\/log\/cli-[^/]+\.log$/;
+const AGY_HEADLESS = (arg: string) => arg === '-p' || arg.startsWith('-p=') || arg === '--print';
+const RUNNER_ENV = /(?:^|\0)PIPELINE_(?:PHASE|RUN_DIR)=/;
+
+export interface AgyStopDeps {
+  /** Raiz do procfs (padrão /proc). */
+  procRoot?: string;
+  readDir?: (dir: string) => string[];
+  readFile?: (file: string) => string;
+  readLink?: (path: string) => string;
+  /** Dono do processo (uid do arquivo em /proc/<pid>). */
+  ownerOf?: (path: string) => number;
+  uid?: number;
+  procInfo?: (pid: number) => Promise<ProcInfo | undefined>;
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/** O processo agy interativo do usuário que está na conversa `conversationId`, ou o motivo de não achar um só. */
+export function findAgyProcess(conversationId: string, deps: AgyStopDeps = {}): { pid: number } | { error: string } {
+  const root = deps.procRoot ?? '/proc';
+  const readDir = deps.readDir ?? ((d: string) => readdirSync(d));
+  const readFile = deps.readFile ?? ((f: string) => readFileSync(f, 'utf8'));
+  const readLink = deps.readLink ?? ((p: string) => readlinkSync(p));
+  const ownerOf = deps.ownerOf ?? ((p: string) => statSync(p).uid);
+  const uid = deps.uid ?? process.getuid?.() ?? -1;
+  let pids: string[] = [];
+  try {
+    pids = readDir(root).filter((n) => /^\d+$/.test(n));
+  } catch {
+    return { error: tr('sem acesso à lista de processos deste computador') };
+  }
+  const found: number[] = [];
+  for (const pid of pids) {
+    const dir = join(root, pid);
+    try {
+      if (readFile(join(dir, 'comm')).trim() !== 'agy' || ownerOf(dir) !== uid) continue;
+      if (readFile(join(dir, 'cmdline')).split('\0').some(AGY_HEADLESS)) continue;
+      if (RUNNER_ENV.test(readFile(join(dir, 'environ')))) continue;
+      const logs = readDir(join(dir, 'fd'))
+        .map((fd) => {
+          try {
+            return readLink(join(dir, 'fd', fd));
+          } catch {
+            return '';
+          }
+        })
+        .filter((target) => AGY_LOG.test(target));
+      if (logs.some((log) => readFile(log).includes(conversationId))) found.push(Number(pid));
+    } catch {
+      // processo saiu no meio da leitura, ou não é nosso: ignora
+    }
+  }
+  if (found.length === 1) return { pid: found[0]! };
+  if (!found.length) return { error: tr('o agy dessa conversa não está rodando neste computador') };
+  return { error: tr('mais de um agy cita essa conversa: nada foi encerrado') };
+}
+
+/** Encerra o agy interativo da conversa `conversationId` neste computador (SIGTERM conferido). Nunca lança. */
+export async function stopAgySession(conversationId: string, deps: AgyStopDeps = {}): Promise<StopResult> {
+  if (!SESSION_ID.test(conversationId)) return { ok: false, error: tr('sessão inválida') };
+  const first = findAgyProcess(conversationId, deps);
+  if ('error' in first) return { ok: false, error: first.error };
+  const procInfo = deps.procInfo ?? ((pid: number) => readProcInfo(pid));
+  const before = await procInfo(first.pid);
+  if (!before) return { ok: false, error: tr('o processo da sessão já não existe') };
+  // Logo antes do sinal: o mesmo PID ainda é o agy da conversa, com o mesmo início.
+  const again = findAgyProcess(conversationId, deps);
+  const after = await procInfo(first.pid);
+  if ('error' in again || again.pid !== first.pid || !after || after.startMs !== before.startMs || after.name !== 'agy') {
+    return { ok: false, error: tr('o processo mudou durante a conferência: nada foi encerrado') };
+  }
+  try {
+    (deps.kill ?? ((pid: number, sig: NodeJS.Signals) => process.kill(pid, sig)))(first.pid, 'SIGTERM');
   } catch (err) {
     return { ok: false, error: tr('não consegui encerrar o processo: {0}', [(err as Error).message]).slice(0, ERROR_MAX) };
   }

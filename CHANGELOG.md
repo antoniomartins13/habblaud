@@ -39,8 +39,11 @@ do meio (0.**3**.0).
 
 - **Sala com o nome da funcionalidade.** Se a pasta da entrega ou da revisão em `_pipeline/tarefas/` tiver um `titulo.txt`, a sala usa a primeira linha dele (o pipeline grava o nome do card do Trello) em vez de "MR !N" ou do id da entrega.
 
+- **Encerrar sessões do agy (Antigravity) pelo painel do agente.** O auxiliar do computador acha o processo `agy` da conversa pelo log que ele mantém aberto (onde aparece o id da conversa), confere que o PID ainda é o mesmo processo e manda SIGTERM. Nunca encerra o agy headless (`-p`, o do runner do pipeline), processo de outro usuário nem, quando mais de um agy cita a conversa, nenhum deles. Sessões das fases do runner (Claude ou agy) não têm o botão: quem encerra é o pipeline.
+
 ### Corrigido
 
+- Encerrar uma sessão do agy não cai mais em "a única sessão tmux do agy": antes, um pedido para uma conversa podia matar outra.
 - O pedido de permissão de uma fase do runner do pipeline (sessão com `PIPELINE_PHASE`) não vai mais para o escritório: o runner roda sem ninguém responder, e o pedido parava a fase esperando um clique.
 - Os botões Aprovar/Recuperar/Concluir mandam a linha sempre para o console do pipeline (sessão "Console do pipeline"), e não para a sessão do Claude mais recente nem para a coordenadora da sala. Com o console fora do ar, vale a regra anterior.
 - A janela de leitura (Spec, Roteiro, Revisão…) não desfoca mais o escritório por trás: com ela aberta, o navegador ficava lento.

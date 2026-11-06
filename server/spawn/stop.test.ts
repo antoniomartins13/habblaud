@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
-import { findSession, STOP_QUEUED_TIMEOUT_MS, StopService, stopSession, type HostStopDeps } from './stop';
+import { findAgyProcess, findSession, STOP_QUEUED_TIMEOUT_MS, StopService, stopAgySession, stopSession, type AgyStopDeps, type HostStopDeps } from './stop';
 import { HOST_PRESENCE_MS } from './spawn';
 
 setQuiet(true);
@@ -128,5 +128,89 @@ describe('stopSession (auxiliar do host)', () => {
     const d = deps({ '/home/u/.claude/sessions/4242.json': reg({ kind: 'bg', jobId: '8c5c67e7' }) }, { claudeBin: undefined });
     expect(await stopSession(SID, d)).toMatchObject({ ok: false });
     expect(d.kills).toEqual([]);
+  });
+});
+
+describe('stopAgySession (host, Antigravity)', () => {
+  const CONV = '8608b292-c24b-4c70-9760-ae591a4d90c3';
+  const LOG = '/home/u/.gemini/antigravity-cli/log/cli-20261106_150252.log';
+  interface FakeProc { comm?: string; uid?: number; cmdline?: string[]; environ?: string; log?: string; logText?: string }
+
+  function fakeProc(procs: Record<string, FakeProc>, start = 1_000) {
+    const files = new Map<string, string>();
+    const links = new Map<string, string>();
+    for (const [pid, p] of Object.entries(procs)) {
+      files.set(`/proc/${pid}/comm`, `${p.comm ?? 'agy'}\n`);
+      files.set(`/proc/${pid}/cmdline`, (p.cmdline ?? ['/home/u/.local/bin/agy']).join('\0'));
+      files.set(`/proc/${pid}/environ`, p.environ ?? 'HOME=/home/u\0');
+      const log = p.log ?? `/home/u/.gemini/antigravity-cli/log/cli-${pid}.log`;
+      links.set(`/proc/${pid}/fd/3`, log);
+      links.set(`/proc/${pid}/fd/1`, '/dev/pts/1');
+      files.set(log, p.logText ?? '');
+    }
+    const killed: Array<[number, string]> = [];
+    const deps: AgyStopDeps = {
+      procRoot: '/proc',
+      readDir: (d) => (d === '/proc' ? [...Object.keys(procs), 'self', 'net'] : d.endsWith('/fd') ? ['1', '3'] : []),
+      readFile: (f) => {
+        const v = files.get(f);
+        if (v === undefined) throw new Error('ENOENT');
+        return v;
+      },
+      readLink: (p) => {
+        const v = links.get(p);
+        if (v === undefined) throw new Error('ENOENT');
+        return v;
+      },
+      ownerOf: (p) => procs[p.split('/')[2]!]?.uid ?? 1000,
+      uid: 1000,
+      procInfo: async () => ({ startMs: start, name: 'agy' }),
+      kill: (pid, sig) => killed.push([pid, sig]),
+    };
+    return { deps, killed };
+  }
+
+  it('encerra só o agy interativo cujo log aberto cita a conversa', async () => {
+    const { deps, killed } = fakeProc({
+      '10': { logText: `I1106 conversation_manager cascade_id:${CONV}\n` },
+      '11': { logText: 'cascade_id:outra-conversa' },
+      '12': { comm: 'node', logText: CONV },
+    });
+    expect(findAgyProcess(CONV, deps)).toEqual({ pid: 10 });
+    expect(await stopAgySession(CONV, deps)).toEqual({ ok: true, how: 'signal' });
+    expect(killed).toEqual([[10, 'SIGTERM']]);
+  });
+
+  it('nunca toca no agy headless (runner do pipeline: -p, -p=..., env do runner) nem em processo de outro usuário', async () => {
+    const { deps, killed } = fakeProc({
+      '20': { cmdline: ['agy', '--output-format', 'json', `-p=prompt ${CONV}`], logText: CONV },
+      '21': { cmdline: ['agy', '-p', 'x'], logText: CONV },
+      '22': { environ: 'PIPELINE_PHASE=dev\0', logText: CONV },
+      '23': { uid: 0, logText: CONV },
+    });
+    expect(await stopAgySession(CONV, deps)).toEqual({ ok: false, error: 'o agy dessa conversa não está rodando neste computador' });
+    expect(killed).toEqual([]);
+  });
+
+  it('dois candidatos, PID trocado no meio ou id inválido: nada é encerrado', async () => {
+    const dois = fakeProc({ '30': { logText: CONV }, '31': { logText: CONV } });
+    expect((await stopAgySession(CONV, dois.deps)).ok).toBe(false);
+    expect(dois.killed).toEqual([]);
+
+    const um = fakeProc({ '40': { logText: CONV } });
+    let n = 0;
+    um.deps.procInfo = async () => ({ startMs: n++ === 0 ? 1_000 : 2_000, name: 'agy' });
+    expect(await stopAgySession(CONV, um.deps)).toEqual({ ok: false, error: 'o processo mudou durante a conferência: nada foi encerrado' });
+    expect(await stopAgySession('../../etc', um.deps)).toEqual({ ok: false, error: 'sessão inválida' });
+    expect(um.killed).toEqual([]);
+  });
+
+  it('o pedido leva o provedor até o auxiliar', () => {
+    let clock = 1_000;
+    const s = new StopService({ now: () => clock, newId: () => 'st-agy' });
+    s.poll();
+    expect(s.submit(CONV, 'antigravity')).toEqual({ stop: { id: 'st-agy', sessionId: CONV, provider: 'antigravity', status: 'queued' } });
+    clock += 1;
+    expect(s.poll()).toEqual([{ id: 'st-agy', sessionId: CONV, provider: 'antigravity' }]);
   });
 });

@@ -576,8 +576,13 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
             const agentId = body && typeof body === 'object' ? (body as { agentId?: unknown }).agentId : undefined;
             const a = typeof agentId === 'string' ? deps.office.get(agentId) : undefined;
             if (!a) return sendJson(res, 404, { error: tr('agente desconhecido') });
-            if (a.kind !== 'main' || (a.provider && a.provider !== 'claude')) return sendJson(res, 400, { error: tr('só dá para encerrar sessões principais do Claude Code') });
-            const r = stop.submit(a.sessionId);
+            const provider = a.provider ?? 'claude';
+            if (a.kind !== 'main' || (provider !== 'claude' && provider !== 'antigravity')) {
+              return sendJson(res, 400, { error: tr('só dá para encerrar sessões principais do Claude Code ou do agy') });
+            }
+            // Fase do runner do pipeline: quem encerra é o pipeline (RECUPERAR), nunca o escritório.
+            if (a.pipelinePhase) return sendJson(res, 409, { error: tr('sessão do runner do pipeline: não é encerrada pelo escritório') });
+            const r = stop.submit(a.sessionId, provider);
             if ('stop' in r) return sendJson(res, 201, r.stop);
             sendJson(res, r.error === 'invalid' ? 400 : 409, { error: r.reason });
           })

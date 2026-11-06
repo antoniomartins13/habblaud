@@ -32,7 +32,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** O botão aparece para este agente? Sessão principal do Claude Code, viva, com o recurso ligado e liberado. */
 export function canStop(a: AgentInfo | null | undefined, live: boolean, snap: OfficeSnapshot | null | undefined): boolean {
-  return !!a && live && a.kind === 'main' && providerOf(a) === 'claude' && snap?.meta.stop === true && access().spawn;
+  const provider = a ? providerOf(a) : undefined;
+  // Claude Code e agy; fase do runner do pipeline nunca (quem encerra é o pipeline).
+  return !!a && live && a.kind === 'main' && (provider === 'claude' || provider === 'antigravity') && !a.pipelinePhase
+    && snap?.meta.stop === true && access().spawn;
 }
 
 /** Pede o encerramento e espera o resultado. Lança com o motivo quando não deu. */
