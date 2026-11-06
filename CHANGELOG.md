@@ -39,6 +39,7 @@ do meio (0.**3**.0).
 
 ### Corrigido
 
+- Os botões Aprovar/Recuperar/Concluir mandam a linha sempre para o console do pipeline (sessão "Console do pipeline"), e não para a sessão do Claude mais recente nem para a coordenadora da sala. Com o console fora do ar, vale a regra anterior.
 - A janela de leitura (Spec, Roteiro, Revisão…) não desfoca mais o escritório por trás: com ela aberta, o navegador ficava lento.
 - O escritório desenha no máximo 24 quadros por segundo: a aba do Habblaud deixava o processo de GPU do Chrome em 100% de CPU.
 - **Acesso pelo celular: `npm run remote:setup` no Linux com `/tmp` em tmpfs.** A chave da CA e o certificado eram

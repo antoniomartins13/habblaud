@@ -29,8 +29,11 @@ const WHAT_LABEL: Record<PipelinePending['kind'], () => string> = {
 /**
  * Acha a sessão interativa do usuário que pode receber `APROVAR` / `RECUPERAR` pelo plugin `habblaud-mensagens`:
  * agente principal do Claude Code com `canMessage`, que não é `--bg` nem sessão de fase do runner (`pipelinePhase`).
- * Prefere uma sessão aberta na própria sala; senão, a mais recente do escritório (ex.: a gerência).
+ * Prefere o console do pipeline (título fixo); senão, uma sessão aberta na própria sala; senão, a mais recente.
  */
+/** Titulo da sessao do console sem janela (`_pipeline/scripts/console.sh -n`). */
+export const PIPELINE_CONSOLE_TITLE = 'Console do pipeline';
+
 export function findInteractiveConsole(agents: readonly AgentInfo[], roomId?: string): AgentInfo | undefined {
   const eligible = agents.filter(
     (a) =>
@@ -43,6 +46,10 @@ export function findInteractiveConsole(agents: readonly AgentInfo[], roomId?: st
       (!a.provider || a.provider === 'claude'),
   );
   if (!eligible.length) return undefined;
+  // O console do pipeline (habblaud-console.service, titulo fixo) sempre vence: gate nao vai para a sessao
+  // de trabalho mais recente nem para a coordenadora da sala.
+  const pipelineConsole = eligible.find((a) => a.title === PIPELINE_CONSOLE_TITLE);
+  if (pipelineConsole) return pipelineConsole;
   if (roomId) {
     const inRoom = eligible.filter((a) => a.roomId === roomId).sort((a, b) => b.lastEventAt - a.lastEventAt);
     if (inRoom.length) return inRoom[0];

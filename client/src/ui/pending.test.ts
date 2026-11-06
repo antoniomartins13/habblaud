@@ -125,6 +125,15 @@ describe('findInteractiveConsole', () => {
     expect(findInteractiveConsole([bg, worker, gerencia, sala])).toBe(gerencia);
     expect(findInteractiveConsole([bg, worker, gerencia, sala], 'pipeline:entrega:aj4')).toBe(sala);
   });
+
+  it('o console do pipeline (titulo fixo) vence a sessao mais recente e a da sala; offline nao conta', () => {
+    const theo = agent({ id: 'theo', name: 'Theo', title: 'Console do pipeline', roomId: '/o', lastEventAt: 100 });
+    const recente = agent({ id: 'rec', name: 'Noemi', roomId: '/home/u', lastEventAt: 900 });
+    const sala = agent({ id: 'sala', name: 'Coord', roomId: 'pipeline:entrega:aj4', lastEventAt: 800 });
+    expect(findInteractiveConsole([recente, sala, theo])).toBe(theo);
+    expect(findInteractiveConsole([recente, sala, theo], 'pipeline:entrega:aj4')).toBe(theo);
+    expect(findInteractiveConsole([recente, { ...theo, status: 'offline' }])).toBe(recente);
+  });
 });
 
 describe('pendingItems (botão Aprovar/Recuperar + Spec/Plano)', () => {
