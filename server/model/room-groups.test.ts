@@ -83,6 +83,17 @@ describe('PipelineRoomGroups', () => {
     expect(groups.group(join(ws, '_review-wt/be_mr445_r2'))).toEqual({ id: `${GROUP_ROOM_PREFIX}mr:445`, name: 'MR !445', path: join(ws, '_review-wt') });
   });
 
+  it('com titulo.txt na pasta, a sala usa o título da funcionalidade (MR, entrega e tarefa sem entrega)', () => {
+    writeFileSync(join(pipeline, 'tarefas', 'mr-596-471-home-3954', 'titulo.txt'), '  [ERP] Reorganizar a página Home \nresto ignorado');
+    writeFileSync(join(pipeline, 'tarefas', 'aj3-back', 'titulo.txt'), 'Ajustes da transparência 3');
+    writeFileSync(join(pipeline, 'tarefas', 'sem-entrega', 'titulo.txt'), 'x'.repeat(80));
+    groups = new PipelineRoomGroups({ dir: pipeline });
+    expect(groups.group(join(ws, '_review-wt/be_mr596'))?.name).toBe('[ERP] Reorganizar a página Home');
+    // Entrega sem titulo.txt na pasta dela: vale o da primeira tarefa.
+    expect(groups.group(join(ws, '_wt/aj3-front'))?.name).toBe('Ajustes da transparência 3');
+    expect(groups.group(join(pipeline, '.local/runs/sem-entrega'))?.name).toBe(`${'x'.repeat(59)}…`);
+  });
+
   it('checkouts de revisão sem número de MR vão para "Revisões"', () => {
     const want = { id: `${GROUP_ROOM_PREFIX}revisoes`, name: 'Revisões', path: join(ws, '_review-wt') };
     expect(groups.group(join(ws, '_review-wt/be_acl591'))).toEqual(want);

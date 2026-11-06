@@ -54,7 +54,12 @@ interface Index {
   worktreeTask: Map<string, string>;
   /** Número do MR → pasta em tarefas/ (mr-<N>-…). */
   mrDir: Map<string, string>;
+  /** Pasta em tarefas/ → título da funcionalidade (tarefas/<pasta>/titulo.txt, gravado pelo pipeline). */
+  titleOf: Map<string, string>;
 }
+
+/** Tamanho máximo do nome da sala vindo do titulo.txt. */
+const TITLE_MAX = 60;
 
 /** Caminho relativo de `p` dentro de `base` (com /), ou undefined se estiver fora. */
 function inside(base: string, p: string): string | undefined {
@@ -121,7 +126,7 @@ export class PipelineRoomGroups {
     if (entrega) return this.entregaGroup(entrega, idx);
     if (!idx.soloTasks.has(task)) return undefined;
     const path = join(this.dir, 'tarefas', task);
-    return { id: normalizeCwd(path), name: task, path };
+    return { id: normalizeCwd(path), name: idx.titleOf.get(task) ?? task, path };
   }
 
   /** A sala onde as pendências de uma tarefa aparecem: a da entrega, a do MR ou a pasta da própria tarefa. */
@@ -136,14 +141,16 @@ export class PipelineRoomGroups {
     const tarefas = join(this.dir, 'tarefas');
     const own = join(tarefas, entrega);
     const path = this.existsOnHost(own) ? own : join(tarefas, idx.tasksOf.get(entrega)?.[0] ?? entrega);
-    return { id: `${GROUP_ROOM_PREFIX}entrega:${entrega}`, name: entrega, path };
+    const first = idx.tasksOf.get(entrega)?.[0];
+    const name = idx.titleOf.get(entrega) ?? (first ? idx.titleOf.get(first) : undefined) ?? entrega;
+    return { id: `${GROUP_ROOM_PREFIX}entrega:${entrega}`, name, path };
   }
 
   private mrGroup(n: string, idx: Index): RoomGroup {
     const dir = idx.mrDir.get(n);
     return {
       id: `${GROUP_ROOM_PREFIX}mr:${n}`,
-      name: tr('MR !{0}', [n]),
+      name: (dir ? idx.titleOf.get(dir) : undefined) ?? tr('MR !{0}', [n]),
       path: dir ? join(this.dir, 'tarefas', dir) : join(this.workspace, '_review-wt'),
     };
   }
@@ -158,7 +165,7 @@ export class PipelineRoomGroups {
     const now = this.now();
     if (this.index && now - this.loadedAt < RESCAN_MS) return this.index;
     this.loadedAt = now;
-    const idx: Index = { entregaOf: new Map(), tasksOf: new Map(), worktreeEntrega: new Map(), soloTasks: new Set(), worktreeTask: new Map(), mrDir: new Map() };
+    const idx: Index = { entregaOf: new Map(), tasksOf: new Map(), worktreeEntrega: new Map(), soloTasks: new Set(), worktreeTask: new Map(), mrDir: new Map(), titleOf: new Map() };
     const repos = this.readRepos();
     const tarefas = join(this.readDir, 'tarefas');
     let names: string[] = [];
@@ -172,6 +179,8 @@ export class PipelineRoomGroups {
     for (const name of names) {
       const mr = /^mr-(\d+)(?:-|$)/i.exec(name);
       if (mr && !idx.mrDir.has(mr[1]!)) idx.mrDir.set(mr[1]!, name);
+      const title = this.readTitle(join(tarefas, name, 'titulo.txt'));
+      if (title) idx.titleOf.set(name, title);
       const task = this.readTask(join(tarefas, name, 'task.json'));
       if (task && !task.entrega) {
         idx.soloTasks.add(name);
@@ -199,6 +208,17 @@ export class PipelineRoomGroups {
     for (const wt of idx.worktreeEntrega.keys()) idx.worktreeTask.delete(wt);
     this.index = idx;
     return idx;
+  }
+
+  /** Primeira linha do titulo.txt (sem espaços nas pontas, cortada em TITLE_MAX), ou undefined. */
+  private readTitle(file: string): string | undefined {
+    try {
+      const line = readFileSync(file, 'utf8').split(/\r?\n/, 1)[0]!.trim();
+      if (!line) return undefined;
+      return line.length > TITLE_MAX ? `${line.slice(0, TITLE_MAX - 1).trimEnd()}…` : line;
+    } catch {
+      return undefined;
+    }
   }
 
   private readTask(file: string): { entrega?: string; repo?: string } | undefined {

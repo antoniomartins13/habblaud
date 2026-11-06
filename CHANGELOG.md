@@ -37,6 +37,8 @@ do meio (0.**3**.0).
 - **Consumo do Antigravity.** O painel do agente do agy mostra o modelo da sessão e os tokens de entrada e de saída,
   somados das respostas no transcript (leitura incremental, no máximo a cada 5 s).
 
+- **Sala com o nome da funcionalidade.** Se a pasta da entrega ou da revisão em `_pipeline/tarefas/` tiver um `titulo.txt`, a sala usa a primeira linha dele (o pipeline grava o nome do card do Trello) em vez de "MR !N" ou do id da entrega.
+
 ### Corrigido
 
 - O pedido de permissão de uma fase do runner do pipeline (sessão com `PIPELINE_PHASE`) não vai mais para o escritório: o runner roda sem ninguém responder, e o pedido parava a fase esperando um clique.
