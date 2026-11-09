@@ -21,6 +21,8 @@ import { AG_EVENTS, CONVERSATION_ID_RE, type AntigravityEvent, type AntigravityL
 
 /** Conversa sem nenhum evento há mais que isto sai do escritório. */
 export const PRESENCE_MS = 30 * 60_000;
+/** Sessão de fase do runner do pipeline (agy headless, uma passada só): ociosa por isto, já terminou e sai da sala. */
+export const PIPELINE_IDLE_MS = 2 * 60_000;
 const SWEEP_MS = 60_000;
 /** De quanto em quanto tempo conferir o arquivo das cotas (o número novo aparece em até 10 s). */
 export const USAGE_POLL_MS = 5_000;
@@ -262,11 +264,14 @@ export class AntigravitySource implements AgentSource, AntigravityLive {
     t.status = status;
   }
 
-  /** Tira do escritório as conversas sem evento há PRESENCE_MS. */
+  /** Tira do escritório as conversas sem evento há PRESENCE_MS; a fase do runner que já ficou ociosa sai em
+   *  PIPELINE_IDLE_MS (o processo do agy headless encerra no Stop e não volta: sem isso, a sala fica cheia de
+   *  fantasmas por meia hora). */
   private sweep(): void {
     const now = this.now();
     for (const [key, t] of [...this.trackers]) {
-      if (now - t.lastEventAt < PRESENCE_MS) continue;
+      const finishedPhase = t.status === 'idle' && !!this.opts.office.get(key)?.pipelinePhase;
+      if (now - t.lastEventAt < (finishedPhase ? PIPELINE_IDLE_MS : PRESENCE_MS)) continue;
       if (t.inOffice) this.opts.office.closeMain(key);
       this.trackers.delete(key);
     }

@@ -8,7 +8,7 @@ import { NameStore } from '../../model/names';
 import { Office, OFFLINE_GRACE_MS } from '../../model/office';
 import { tempDir } from '../../test/fixtures';
 import type { AntigravityEvent } from './live';
-import { AntigravitySource, PRESENCE_MS } from './source';
+import { AntigravitySource, PIPELINE_IDLE_MS, PRESENCE_MS } from './source';
 
 setQuiet(true);
 
@@ -159,6 +159,33 @@ describe('fonte do Antigravity', () => {
     c.advance(OFFLINE_GRACE_MS + 1_000);
     c.office.tick();
     expect(c.agent()).toBeUndefined();
+  });
+
+  it('fase do runner ociosa sai em 2 min; trabalhando, ou sessão comum ociosa, continua até os 30 min', () => {
+    const c = setup();
+    c.source.applyHookEvent(c.ev('PreInvocation'));
+    const id = c.agent()!.id;
+    c.office.setPipelinePhase(id, 'dev');
+    c.advance(PIPELINE_IDLE_MS + 1_000);
+    c.sweep();
+    expect(c.agent()?.status).toBe('working');
+    c.source.applyHookEvent(c.ev('Stop', { fullyIdle: true }));
+    c.advance(PIPELINE_IDLE_MS - 1_000);
+    c.sweep();
+    expect(c.agent()).toBeDefined();
+    c.advance(2_000);
+    c.sweep();
+    c.advance(OFFLINE_GRACE_MS + 1_000);
+    c.office.tick();
+    expect(c.agent()).toBeUndefined();
+
+    const d = setup();
+    d.source.applyHookEvent(d.ev('Stop', { fullyIdle: true }));
+    d.advance(PIPELINE_IDLE_MS + 1_000);
+    d.sweep();
+    d.advance(OFFLINE_GRACE_MS + 1_000);
+    d.office.tick();
+    expect(d.agent()).toBeDefined();
   });
 
   it('depois de sair, um novo evento traz o agente de volta', () => {
