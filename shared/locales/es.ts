@@ -3354,6 +3354,8 @@ export const ES: Readonly<Record<string, string>> = {
   "salas por funcionalidade desligadas (HABBLAUD_PIPELINE_DIR)": "salas por funcionalidad desactivadas (HABBLAUD_PIPELINE_DIR)",
   "✋ O runner espera você": "✋ El runner te espera",
   "Abrir o MR em draft e testar": "Abrir el MR en borrador y probar",
+  "Revisar e testar (o merge aprova)": "Revisar y probar (el merge aprueba)",
+  "{0}: ambiente de revisão no ar, roteiro na sala": "{0}: entorno de revisión activo, guion en la sala",
   "Aprovar o CP1": "Aprobar el CP1",
   "Aprovar o protótipo": "Aprobar el prototipo",
   "Copiar a linha (mande só ela na sua sessão interativa)": "Copiar la línea (envía solo ella en tu sesión interactiva)",

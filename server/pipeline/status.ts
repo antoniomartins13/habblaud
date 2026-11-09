@@ -52,7 +52,7 @@ export function parsePending(raw: unknown): PipelinePending | undefined {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined;
   const task = str(r?.task, 80);
   const kind = r?.kind;
-  if (!task || !TASK_ID.test(task) || (kind !== 'cp1' && kind !== 'prototype' && kind !== 'blocked' && kind !== 'draft')) return undefined;
+  if (!task || !TASK_ID.test(task) || (kind !== 'cp1' && kind !== 'prototype' && kind !== 'blocked' && kind !== 'draft' && kind !== 'review')) return undefined;
   const p: PipelinePending = { task, kind };
   const entrega = str(r?.entrega, 80);
   if (entrega && TASK_ID.test(entrega)) p.entrega = entrega;
@@ -304,6 +304,34 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
       const h = hashes.get(target);
       if (h && HASH.test(h)) p.hash = h;
     }
+    out.push(p);
+  }
+  out.push(...readReviewEnvironments(deps.dir, readDir, readFile));
+  return out;
+}
+
+/**
+ * Revisões de MR de colega (`.local/ambientes/mr-*.json`, `revisao: true`) com o ambiente no ar: viram um cartão na
+ * sala da revisão com o roteiro e os links. Sem comando: quem aprova é o merge no GitLab.
+ */
+export function readReviewEnvironments(dir: string, readDir: (d: string) => string[], readFile: (f: string) => string): PipelinePending[] {
+  const envDir = join(dir, '.local', 'ambientes');
+  let files: string[] = [];
+  try {
+    files = readDir(envDir).filter((f) => f.startsWith('mr-') && f.endsWith('.json')).sort();
+  } catch {
+    return [];
+  }
+  const out: PipelinePending[] = [];
+  for (const f of files) {
+    const task = f.slice(0, -'.json'.length);
+    if (!TASK_ID.test(task)) continue;
+    const info = readJson(join(envDir, f), readFile);
+    if (!info || info.revisao !== true || info.encerrado_em) continue;
+    const env = reviewEnvironmentLinks(info);
+    const p: PipelinePending = { task, kind: 'review' };
+    if (env.links.length) p.links = env.links;
+    if (env.note) p.reason = env.note;
     out.push(p);
   }
   return out;

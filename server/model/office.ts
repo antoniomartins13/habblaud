@@ -1134,7 +1134,9 @@ export class Office {
               ? tr('{0} espera a aprovação do protótipo', [p.entrega ?? p.task])
               : p.kind === 'blocked'
                 ? tr('{0} está bloqueada: precisa de RECUPERAR', [p.task])
-                : tr('{0} está pronta para o MR em draft', [p.task]);
+                : p.kind === 'review'
+                  ? tr('{0}: ambiente de revisão no ar, roteiro na sala', [p.task])
+                  : tr('{0} está pronta para o MR em draft', [p.task]);
         this.notice('wait', `pipeline:${p.task}`, p.kind === 'draft' ? 'info' : 'alert', `✋ ${what}`, room, { dedupeKey: `pipeline|${key(p)}` });
       }
     }

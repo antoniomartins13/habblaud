@@ -24,6 +24,7 @@ const WHAT_LABEL: Record<PipelinePending['kind'], () => string> = {
   prototype: () => tr('Aprovar o protótipo'),
   blocked: () => tr('Recuperar o bloqueio'),
   draft: () => tr('Abrir o MR em draft e testar'),
+  review: () => tr('Revisar e testar (o merge aprova)'),
 };
 
 /**
@@ -588,7 +589,13 @@ export function pendingItems(items: readonly PipelinePending[], opts?: PendingIt
       void getDocModal().open(p, 'review', opts, true);
     });
     const docButtons =
-      p.kind === 'draft' ? [roteiroBtn, specBtn, planBtn, reviewBtn] : p.kind === 'blocked' ? [specBtn, planBtn, reviewBtn] : [specBtn, planBtn];
+      p.kind === 'draft'
+        ? [roteiroBtn, specBtn, planBtn, reviewBtn]
+        : p.kind === 'review'
+          ? [roteiroBtn, reviewBtn]
+          : p.kind === 'blocked'
+            ? [specBtn, planBtn, reviewBtn]
+            : [specBtn, planBtn];
     // Servidores de revisão e MRs (só https, validados no servidor): abrem em aba nova, sem acesso de volta.
     const links = (p.links ?? []).map((l) =>
       h('a', { class: 'ui-btn ui-btn--xs ui-pending__link', text: l.label, attrs: { href: l.url, target: '_blank', rel: 'noopener noreferrer' } }),

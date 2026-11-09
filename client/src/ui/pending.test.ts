@@ -186,6 +186,20 @@ describe('pendingItems (botão Aprovar/Recuperar + Spec/Plano)', () => {
     expect(act.classList.contains('is-done')).toBe(true);
   });
 
+  it('revisão de colega: botões Roteiro e Revisão, sem Concluir nem Pedir correção', async () => {
+    const elements = stubDom();
+    const fetchDoc = vi.fn().mockResolvedValue({ name: 'roteiro-teste.md', content: '# Roteiro' });
+    pendingItems([{ task: 'mr-591-465-acl', kind: 'review' }], { consoleAgent: agent({ id: 'ger', name: 'Theo' }), sendCommand: vi.fn(), fetchDoc });
+    const docs = elements.find((el) => el.className.includes('ui-pending__docs'))!;
+    const docBtns = docs.children;
+    expect(docBtns.map((b) => b.textContent)).toEqual(['Roteiro', 'Revisão']);
+    expect(elements.some((el) => el.className.includes('ui-pending__act'))).toBe(false);
+    expect(elements.some((el) => el.className.includes('ui-pending__corr-btn'))).toBe(false);
+    docBtns[0]!.click();
+    await Promise.resolve();
+    expect(fetchDoc).toHaveBeenCalledWith('mr-591-465-acl', 'roteiro');
+  });
+
   it('permite Concluir ou Pedir correção (editando os pontos da revisão da IA) em entregas prontas ou bloqueadas', async () => {
     const elements = stubDom();
     const consoleAgent = agent({ id: 'ger', name: 'Andrius' });

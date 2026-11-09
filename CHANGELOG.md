@@ -12,6 +12,7 @@ do meio (0.**3**.0).
 
 ### Adicionado
 
+- **Cartão da revisão de colega com o roteiro.** Revisão de MR (`.local/ambientes/mr-*.json`) com o ambiente no ar aparece na sala dela com os botões **Roteiro** e **Revisão** e os links dos servidores e dos MRs. Não tem Concluir nem Pedir correção: quem aprova é o merge no GitLab, e o cartão some quando o ambiente cai.
 - **Salas por funcionalidade do pipeline do Orca (`HABBLAUD_PIPELINE_DIR`).** Com a pasta `_pipeline` configurada, as
   sessões nos worktrees e nas pastas das tarefas da mesma entrega (o `entrega` do `task.json`, a unidade que o CP1
   aprova) dividem uma sala com o nome da entrega: quem implementa e quem revisa ficam juntos. A revisão de MR de colega

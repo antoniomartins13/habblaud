@@ -229,7 +229,8 @@ export interface RoomInfo {
  */
 export interface PipelinePending {
   task: string;
-  kind: 'cp1' | 'prototype' | 'blocked' | 'draft';
+  /** review: revisão de MR de colega com ambiente no ar (sem comando: o merge no GitLab é a aprovação). */
+  kind: 'cp1' | 'prototype' | 'blocked' | 'draft' | 'review';
   entrega?: string;
   /** combined_hash do `pipeline.py gate` (gates). */
   hash?: string;

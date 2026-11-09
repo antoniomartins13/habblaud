@@ -63,6 +63,26 @@ describe('readPipelinePending (auxiliar do host)', () => {
     expect((await readPipelinePending({ dir: DIR, ...files('ready_for_draft') })).map((p) => p.task)).toEqual(['r-back', 'r-front']);
   });
 
+  it('revisão de colega com ambiente no ar vira cartão com roteiro e links, sem comando (o merge aprova)', async () => {
+    const amb = `${DIR}/.local/ambientes`;
+    const srv = { url: 'https://h.ts.net:18036' };
+    const pending = await readPipelinePending({
+      dir: DIR,
+      ...fs({
+        [`${DIR}/.local/tasks/c/state.json`]: { phase: 'dev' },
+        [`${amb}/mr-591-465-acl.json`]: { revisao: true, tarefas: [{ kind: 'front', servidor: srv, mr: { url: 'https://gl/mr/465', iid: 465 } }] },
+        [`${amb}/mr-596-471-home.json`]: { revisao: true, encerrado_em: '2026-11-09', tarefas: [] },
+        [`${amb}/processo-adm.json`]: { tarefas: [] },
+        [`${amb}/portas.json`]: {},
+      }),
+    });
+    expect(pending).toEqual([
+      { task: 'mr-591-465-acl', kind: 'review', links: [{ label: 'front', url: 'https://h.ts.net:18036/' }, { label: 'MR front !465', url: 'https://gl/mr/465' }] },
+    ]);
+    expect(pendingCommand(pending[0]!)).toBeUndefined();
+    expect(parsePending({ task: 'mr-591-465-acl', kind: 'review' })).toEqual({ task: 'mr-591-465-acl', kind: 'review' });
+  });
+
   it('sem .local/tasks, nada (e nada lança)', async () => {
     expect(await readPipelinePending({ dir: DIR, ...fs({}) })).toEqual([]);
   });
