@@ -3,7 +3,7 @@
 // e o hash do gate vem de `pipeline.py gate`, só leitura. O servidor guarda a última foto (POST /api/host/pipeline) e
 // a põe no snapshot, na sala da funcionalidade.
 // Node puro e sem dependências: também é importado pelo auxiliar do host (via tsx).
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PipelineLink, PipelinePending } from '../../shared/types';
@@ -227,6 +227,17 @@ export interface ReadPipelineDeps {
   exists?: (p: string) => boolean;
   /** `python3 scripts/pipeline.py gate <alvo>` (só leitura); ausente = sem hash. */
   gate?: (target: string) => Promise<{ combined_hash?: string } | undefined>;
+  /** Sessão revisora (tmux `rev-<revisão>`) ainda trabalhando: a revisão não espera o usuário. Padrão: pergunta ao tmux. */
+  reviewerBusy?: (task: string) => boolean;
+}
+
+/** `tmux has-session -t =rev-<revisão>` (nome como em ambiente_revisao.py: reviewer_tmux_name). Sem tmux = livre. */
+export function tmuxReviewerBusy(task: string): boolean {
+  try {
+    return spawnSync('tmux', ['has-session', '-t', `=rev-${task.slice(0, 44)}`], { stdio: 'ignore', timeout: 3000 }).status === 0;
+  } catch {
+    return false;
+  }
 }
 
 function readJson(file: string, read: (f: string) => string): Record<string, unknown> | undefined {
@@ -306,7 +317,7 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
     }
     out.push(p);
   }
-  out.push(...readReviewEnvironments(deps.dir, readDir, readFile));
+  out.push(...readReviewEnvironments(deps.dir, readDir, readFile, deps.reviewerBusy ?? tmuxReviewerBusy));
   return out;
 }
 
@@ -314,7 +325,12 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
  * Revisões de MR de colega (`.local/ambientes/mr-*.json`, `revisao: true`) com o ambiente no ar: viram um cartão na
  * sala da revisão com o roteiro e os links. CONCLUIR derruba o ambiente e a sala (o merge no GitLab também derruba).
  */
-export function readReviewEnvironments(dir: string, readDir: (d: string) => string[], readFile: (f: string) => string): PipelinePending[] {
+export function readReviewEnvironments(
+  dir: string,
+  readDir: (d: string) => string[],
+  readFile: (f: string) => string,
+  reviewerBusy: (task: string) => boolean = () => false,
+): PipelinePending[] {
   const envDir = join(dir, '.local', 'ambientes');
   let files: string[] = [];
   try {
@@ -328,6 +344,8 @@ export function readReviewEnvironments(dir: string, readDir: (d: string) => stri
     if (!TASK_ID.test(task)) continue;
     const info = readJson(join(envDir, f), readFile);
     if (!info || info.revisao !== true || info.encerrado_em) continue;
+    // Revisora ainda escrevendo parecer e roteiro: nada para o usuário fazer ainda (o cartão aparece quando ela entrega).
+    if (reviewerBusy(task)) continue;
     const env = reviewEnvironmentLinks(info);
     const p: PipelinePending = { task, kind: 'review' };
     if (env.links.length) p.links = env.links;

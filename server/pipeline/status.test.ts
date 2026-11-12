@@ -66,16 +66,16 @@ describe('readPipelinePending (auxiliar do host)', () => {
   it('revisão de colega com ambiente no ar vira cartão com roteiro e links, com CONCLUIR (derruba a sala; o merge também)', async () => {
     const amb = `${DIR}/.local/ambientes`;
     const srv = { url: 'https://h.ts.net:18036' };
-    const pending = await readPipelinePending({
-      dir: DIR,
-      ...fs({
+    const files = fs({
         [`${DIR}/.local/tasks/c/state.json`]: { phase: 'dev' },
         [`${amb}/mr-591-465-acl.json`]: { revisao: true, tarefas: [{ kind: 'front', servidor: srv, mr: { url: 'https://gl/mr/465', iid: 465 } }] },
         [`${amb}/mr-596-471-home.json`]: { revisao: true, encerrado_em: '2026-11-09', tarefas: [] },
         [`${amb}/processo-adm.json`]: { tarefas: [] },
         [`${amb}/portas.json`]: {},
-      }),
-    });
+      });
+    // Revisora ainda trabalhando (tmux rev-*): o cartão não aparece, ninguém espera o usuário.
+    expect(await readPipelinePending({ dir: DIR, ...files, reviewerBusy: () => true })).toEqual([]);
+    const pending = await readPipelinePending({ dir: DIR, ...files, reviewerBusy: () => false });
     expect(pending).toEqual([
       { task: 'mr-591-465-acl', kind: 'review', links: [{ label: 'front', url: 'https://h.ts.net:18036/' }, { label: 'MR front !465', url: 'https://gl/mr/465' }] },
     ]);
