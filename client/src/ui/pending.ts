@@ -169,12 +169,12 @@ function buildActionButtonsForPending(
 ): HTMLElement[] {
   const out: HTMLElement[] = [];
   const target = p.entrega ?? p.task;
-  const cmd = p.command ?? (p.kind === 'draft' ? `CONCLUIR ${target}` : undefined);
+  const cmd = p.command ?? (p.kind === 'draft' || p.kind === 'review' ? `CONCLUIR ${target}` : undefined);
   if (cmd && opts?.sendCommand) {
     const label =
       p.kind === 'cp1' || p.kind === 'prototype'
         ? tr('Aprovar')
-        : p.kind === 'draft'
+        : p.kind === 'draft' || p.kind === 'review'
           ? tr('Concluir')
           : tr('Recuperar');
     const confirmLabel =
@@ -184,6 +184,8 @@ function buildActionButtonsForPending(
           ? tr('Aprovar o protótipo de {0}?', [target])
           : p.kind === 'draft'
             ? tr('Concluir {0}?', [target])
+            : p.kind === 'review'
+              ? tr('Concluir a revisão {0}? Derruba servidores e a sala.', [target])
             : cmd.endsWith(' validate')
               ? tr('Recuperar {0} p/ validação?', [target])
               : tr('Recuperar {0}?', [target]);
@@ -412,7 +414,7 @@ class PipelineDocModal {
     this.rawContent = '';
     setText(this.mdEl, tr('Carregando…'));
 
-    const cmd = p.command ?? (p.kind === 'draft' ? `CONCLUIR ${target}` : undefined);
+    const cmd = p.command ?? (p.kind === 'draft' || p.kind === 'review' ? `CONCLUIR ${target}` : undefined);
     const feedback = h('span', {
       class: 'ui-pending__feedback',
       hidden: !(opts?.sendCommand && !opts.consoleAgent && cmd),
@@ -550,7 +552,7 @@ export function resetPipelineDocModalForTest(): void {
 export function pendingItems(items: readonly PipelinePending[], opts?: PendingItemsOptions): HTMLElement[] {
   return groupPendingByEntrega(items).map((p) => {
     const target = p.entrega ?? p.task;
-    const cmd = p.command ?? (p.kind === 'draft' ? `CONCLUIR ${target}` : undefined);
+    const cmd = p.command ?? (p.kind === 'draft' || p.kind === 'review' ? `CONCLUIR ${target}` : undefined);
     const specBtn = h('button', {
       class: 'ui-btn ui-btn--xs ui-pending__doc-btn',
       type: 'button',

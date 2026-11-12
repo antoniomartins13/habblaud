@@ -186,14 +186,14 @@ describe('pendingItems (botão Aprovar/Recuperar + Spec/Plano)', () => {
     expect(act.classList.contains('is-done')).toBe(true);
   });
 
-  it('revisão de colega: botões Roteiro e Revisão, sem Concluir nem Pedir correção', async () => {
+  it('revisão de colega: botões Roteiro e Revisão e Concluir, sem Pedir correção', async () => {
     const elements = stubDom();
     const fetchDoc = vi.fn().mockResolvedValue({ name: 'roteiro-teste.md', content: '# Roteiro' });
     pendingItems([{ task: 'mr-591-465-acl', kind: 'review' }], { consoleAgent: agent({ id: 'ger', name: 'Theo' }), sendCommand: vi.fn(), fetchDoc });
     const docs = elements.find((el) => el.className.includes('ui-pending__docs'))!;
     const docBtns = docs.children;
     expect(docBtns.map((b) => b.textContent)).toEqual(['Roteiro', 'Revisão']);
-    expect(elements.some((el) => el.className.includes('ui-pending__act'))).toBe(false);
+    expect(elements.some((el) => el.className.includes('ui-pending__act') && el.textContent === 'Concluir')).toBe(true);
     expect(elements.some((el) => el.className.includes('ui-pending__corr-btn'))).toBe(false);
     docBtns[0]!.click();
     await Promise.resolve();

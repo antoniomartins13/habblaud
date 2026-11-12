@@ -63,7 +63,7 @@ describe('readPipelinePending (auxiliar do host)', () => {
     expect((await readPipelinePending({ dir: DIR, ...files('ready_for_draft') })).map((p) => p.task)).toEqual(['r-back', 'r-front']);
   });
 
-  it('revisão de colega com ambiente no ar vira cartão com roteiro e links, sem comando (o merge aprova)', async () => {
+  it('revisão de colega com ambiente no ar vira cartão com roteiro e links, com CONCLUIR (derruba a sala; o merge também)', async () => {
     const amb = `${DIR}/.local/ambientes`;
     const srv = { url: 'https://h.ts.net:18036' };
     const pending = await readPipelinePending({
@@ -79,7 +79,7 @@ describe('readPipelinePending (auxiliar do host)', () => {
     expect(pending).toEqual([
       { task: 'mr-591-465-acl', kind: 'review', links: [{ label: 'front', url: 'https://h.ts.net:18036/' }, { label: 'MR front !465', url: 'https://gl/mr/465' }] },
     ]);
-    expect(pendingCommand(pending[0]!)).toBeUndefined();
+    expect(pendingCommand(pending[0]!)).toBe('CONCLUIR mr-591-465-acl');
     expect(parsePending({ task: 'mr-591-465-acl', kind: 'review' })).toEqual({ task: 'mr-591-465-acl', kind: 'review' });
   });
 
@@ -145,6 +145,7 @@ describe('PipelineStatus e a linha que resolve', () => {
       'RECUPERAR ent-a validate',
     );
     expect(pendingCommand({ task: 'c', kind: 'draft' })).toBe('CONCLUIR c');
+    expect(pendingCommand({ task: 'mr-1-2-x', kind: 'review' })).toBe('CONCLUIR mr-1-2-x');
     expect(pendingCommand({ task: 'aj4-back', kind: 'draft', entrega: 'ent-a' })).toBe('CONCLUIR ent-a');
     expect(parsePending({ task: 'x', kind: 'cp1', reason: 'a'.repeat(500) })?.reason).toHaveLength(240);
   });

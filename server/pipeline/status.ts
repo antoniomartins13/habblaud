@@ -145,7 +145,7 @@ export function pendingCommand(p: PipelinePending): string | undefined {
     if (p.reason?.includes('Dev sem progresso')) return `RECUPERAR ${target} validate`;
     return `RECUPERAR ${target}`;
   }
-  if (p.kind === 'draft') return `CONCLUIR ${target}`;
+  if (p.kind === 'draft' || p.kind === 'review') return `CONCLUIR ${target}`;
   return undefined;
 }
 
@@ -312,7 +312,7 @@ export async function readPipelinePending(deps: ReadPipelineDeps): Promise<Pipel
 
 /**
  * Revisões de MR de colega (`.local/ambientes/mr-*.json`, `revisao: true`) com o ambiente no ar: viram um cartão na
- * sala da revisão com o roteiro e os links. Sem comando: quem aprova é o merge no GitLab.
+ * sala da revisão com o roteiro e os links. CONCLUIR derruba o ambiente e a sala (o merge no GitLab também derruba).
  */
 export function readReviewEnvironments(dir: string, readDir: (d: string) => string[], readFile: (f: string) => string): PipelinePending[] {
   const envDir = join(dir, '.local', 'ambientes');
